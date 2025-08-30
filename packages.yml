@@ -1,2 +1,6 @@
-packages: []
-
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.3.0
+  # Optional: uncomment if you want to scaffold models via codegen
+  # - package: dbt-labs/codegen
+  #   version: 0.12.1

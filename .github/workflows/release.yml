@@ -46,12 +46,12 @@ jobs:
           if gcloud run jobs describe "$JOB" --region "${{ env.REGION }}" >/dev/null 2>&1; then
             gcloud run jobs update "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}"
           else
             gcloud run jobs create "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}" \
               --memory=2Gi --cpu=1 --max-retries=0
           fi
@@ -76,8 +76,7 @@ jobs:
               --oauth-service-account-email "${{ secrets.GCP_SCHEDULER_INVOKER_SA }}"
           fi
 
-      - name: Publish prod manifest for future Slim CI
+      - name: Run prod job now and ensure artifacts pushed
         run: |
           gcloud run jobs execute dbt-prod --region "${{ env.REGION }}" --wait || true
-          # If container uploads manifest to GCS, CI will defer to it next time
-
+          # The container uploads manifest/run_results/docs to gs://${{ secrets.DBT_ARTIFACTS_BUCKET }}/prod/

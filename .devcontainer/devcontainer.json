@@ -1,0 +1,17 @@
+{
+  "name": "dbt-bigquery-dev",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {},
+  "postCreateCommand": "pip install --no-cache-dir \"dbt-core==1.9.0\" \"dbt-bigquery==1.9.0\" && pre-commit install || true",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "batisteo.vscode-dbt-power-user"
+      ]
+    }
+  }
+}
+

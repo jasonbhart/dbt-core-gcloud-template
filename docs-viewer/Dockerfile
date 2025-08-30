@@ -11,7 +11,6 @@ COPY app.py /app/app.py
 
 # Default envs (override at deploy)
 ENV DOCS_INDEX_OBJECT=index.html \
-    DOCS_CACHE_CONTROL="public, max-age=60"
+    DOCS_CACHE_CONTROL="public, max-age=300"
 
 CMD ["gunicorn", "-b", ":8080", "-w", "2", "app:app"]
-

@@ -1,0 +1,22 @@
+# dbt
+target/
+dbt_packages/
+.dbt/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Env/local
+.env
+.envrc
+.direnv/
+
+# Editor/OS
+.DS_Store
+.vscode/
+
+# Docker
+*.log
+

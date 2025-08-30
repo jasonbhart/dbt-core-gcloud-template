@@ -5,15 +5,22 @@ profile: dbt_core_gcloud
 
 model-paths: ["models"]
 macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
+vars:
+  DBT_ENV_NAME: "{{ env_var('DBT_TARGET', 'dev') }}"
+
 models:
   +on_schema_change: "append_new_columns"
+  +persist_docs:
+    relation: true
+    columns: true
 
   dbt_core_gcloud_template:
     staging:
       +materialized: view
     marts:
       +materialized: table
-

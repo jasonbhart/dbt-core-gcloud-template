@@ -1,0 +1,9 @@
+[sqlfluff]
+dialect = bigquery
+templater = dbt
+max_line_length = 120
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = profiles
+

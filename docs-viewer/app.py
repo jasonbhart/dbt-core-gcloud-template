@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 BUCKET = os.environ.get("DOCS_BUCKET_NAME")
 INDEX_OBJECT = os.environ.get("DOCS_INDEX_OBJECT", "index.html")
-CACHE_CONTROL = os.environ.get("DOCS_CACHE_CONTROL", "public, max-age=60")
+CACHE_CONTROL = os.environ.get("DOCS_CACHE_CONTROL", "public, max-age=300")
 
 if not BUCKET:
     raise RuntimeError("DOCS_BUCKET_NAME env var is required")
@@ -33,4 +33,3 @@ def root():
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
-

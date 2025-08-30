@@ -48,6 +48,9 @@ jobs:
       - name: Slim CI build (with defer if prod manifest exists)
         run: bash scripts/ci_build.sh
 
+      - name: Source freshness (lightweight)
+        run: dbt source freshness --select source:raw.example || true
+
       - name: Generate docs (optional preview)
         run: dbt docs generate --static
 

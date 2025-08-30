@@ -1,0 +1,20 @@
+# Ignore everything not needed in image context
+.git
+.dbt
+.vscode
+.env
+.envrc
+.direnv
+__pycache__
+*.pyc
+
+# dbt build artifacts
+target
+dbt_packages
+
+# Docs artifacts (uploaded separately)
+*.html
+
+# OS
+.DS_Store
+
