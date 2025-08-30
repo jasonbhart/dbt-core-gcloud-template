@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: "{{ env_var('DBT_RAW_DATASET', 'raw') }}"
+    tables:
+      - name: example
+

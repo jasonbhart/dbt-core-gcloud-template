@@ -1,0 +1,61 @@
+name: ci-pr
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ "README.md" ]
+
+env:
+  DBT_BQ_LOCATION: us
+  DBT_TARGET: ci
+  DBT_PROFILES_DIR: ./profiles
+
+jobs:
+  bigquery-ci:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SA_EMAIL }}
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Python & dbt install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "dbt-core==1.9.0" "dbt-bigquery==1.9.0"
+
+      - name: Set CI env
+        run: |
+          echo "DBT_GCP_PROJECT_CI=${{ secrets.GCP_PROJECT_CI }}" >> $GITHUB_ENV
+          echo "DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }}" >> $GITHUB_ENV
+          echo "DBT_USER=ci_${{ github.actor }}" >> $GITHUB_ENV
+          echo "DBT_BQ_DATASET=ci_pr_${{ github.event.number }}_${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Create ephemeral dataset
+        run: bash scripts/create_bq_dataset.sh
+
+      - name: Slim CI build (with defer if prod manifest exists)
+        run: bash scripts/ci_build.sh
+
+      - name: Generate docs (optional preview)
+        run: dbt docs generate --static
+
+      - name: Upload CI artifacts (docs + manifest)
+        if: always()
+        run: |
+          gsutil -m rsync -r ./target "gs://${DBT_ARTIFACTS_BUCKET}/ci/pr-${{ github.event.number }}-${{ github.run_id }}/"
+          gsutil cp target/manifest.json "gs://${DBT_ARTIFACTS_BUCKET}/ci/pr-${{ github.event.number }}-${{ github.run_id }}/manifest.json"
+
+      - name: Cleanup dataset
+        if: always()
+        run: bash scripts/drop_bq_dataset.sh
+

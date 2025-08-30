@@ -1,0 +1,7 @@
+version: 2
+models:
+  - name: fct_example
+    tests:
+      - not_null:
+          column_name: id
+

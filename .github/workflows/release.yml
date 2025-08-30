@@ -1,0 +1,83 @@
+name: release
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ "README.md" ]
+
+env:
+  REGION: us-central1
+  SCHED_REGION: us-central1
+  REPO: dbt-artifacts
+  IMAGE_NAME: dbt-runner
+  DBT_PROFILES_DIR: /app/profiles
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker auth to Artifact Registry
+        run: gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev"
+
+      - name: Build & push container
+        run: |
+          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_PROD }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
+      - name: Create/Update Cloud Run Job
+        run: |
+          JOB=dbt-prod
+          set -e
+          if gcloud run jobs describe "$JOB" --region "${{ env.REGION }}" >/dev/null 2>&1; then
+            gcloud run jobs update "$JOB" \
+              --image "$IMAGE_URI" \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US \
+              --region "${{ env.REGION }}"
+          else
+            gcloud run jobs create "$JOB" \
+              --image "$IMAGE_URI" \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US \
+              --region "${{ env.REGION }}" \
+              --memory=2Gi --cpu=1 --max-retries=0
+          fi
+
+      - name: Schedule the job (Cloud Scheduler)
+        run: |
+          SCHED=dbt-prod-schedule
+          EXEC_URI="https://run.googleapis.com/v2/projects/${{ secrets.GCP_PROJECT_PROD }}/locations/${{ env.REGION }}/jobs/dbt-prod:run"
+          if ! gcloud scheduler jobs describe "$SCHED" --location "${{ env.SCHED_REGION }}" >/dev/null 2>&1; then
+            gcloud scheduler jobs create http "$SCHED" \
+              --location "${{ env.SCHED_REGION }}" \
+              --schedule "0 2 * * *" \
+              --uri "$EXEC_URI" \
+              --http-method POST \
+              --oauth-service-account-email "${{ secrets.GCP_SCHEDULER_INVOKER_SA }}"
+          else
+            gcloud scheduler jobs update http "$SCHED" \
+              --location "${{ env.SCHED_REGION }}" \
+              --schedule "0 2 * * *" \
+              --uri "$EXEC_URI" \
+              --http-method POST \
+              --oauth-service-account-email "${{ secrets.GCP_SCHEDULER_INVOKER_SA }}"
+          fi
+
+      - name: Publish prod manifest for future Slim CI
+        run: |
+          gcloud run jobs execute dbt-prod --region "${{ env.REGION }}" --wait || true
+          # If container uploads manifest to GCS, CI will defer to it next time
+

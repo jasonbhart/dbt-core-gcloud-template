@@ -1,0 +1,9 @@
+version: 2
+models:
+  - name: stg_example
+    tests:
+      - unique:
+          column_name: id
+      - not_null:
+          column_name: id
+

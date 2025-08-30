@@ -1,0 +1,276 @@
+# dbt-core-gcloud-template
+
+A starter template for **dbt Core on BigQuery** with:
+
+* Per‑developer isolated datasets (dev), **integration (CI)**, and **production**
+* **GitHub Actions** for CI (Slim CI + `--defer`) and containerized CD
+* **Cloud Run Jobs** orchestrated by **Cloud Scheduler** for prod
+* Optional **Python pre/post hooks** and **dbt docs** artifacts (static)
+
+> Why these choices:
+> • Per‑developer sandboxes and environment separation are well‑established best practices to reduce blast radius during development. Data teams often use developer‑specific schemas/datasets for isolation. ([Datafold][1])
+> • “Slim CI” with `state:modified+` and `--defer` is a widely used pattern to speed up PR checks and validate only the impacted parts of the DAG. ([Medium][2], [Klaviyo Engineering][3])
+> • Cloud Run **Jobs** + Cloud Scheduler provide serverless batch orchestration without maintaining servers; Jobs are designed for run‑to‑completion tasks and can be triggered on a schedule.
+
+---
+
+## Prerequisites
+
+* Python 3.9–3.12 with pip (or pipx). Verify: `python --version`, `pip --version`.
+* Google Cloud SDK installed (provides `gcloud`, `bq`, and `gcloud storage`).
+* Docker (to build/push the dbt image).
+* jq (JSON CLI used by infra scripts).
+* GitHub CLI (optional; required if you want to auto-set GitHub Actions secrets via `infra/60-set-github-secrets.sh`).
+* GCP access to create IAM, BigQuery datasets, Artifact Registry repos, Cloud Run Jobs, and Cloud Scheduler jobs.
+* APIs: BigQuery, Artifact Registry, Cloud Run, Cloud Scheduler, IAM (enabled by `infra/10-bootstrap.sh` if not already).
+
+---
+
+## Repo Layout
+
+* `.github/workflows/ci.yml` — PR validation on ephemeral BigQuery dataset (Slim CI, deferral) ([Medium][2], [Klaviyo Engineering][3])
+* `.github/workflows/release.yml` — Build & publish container → update Cloud Run Job → keep schedule in sync
+* `Dockerfile`, `entrypoint.sh` — Containerized dbt runner (supports optional hooks & docs)
+* `profiles/profiles.yml` — Env‑var driven dbt profiles for dev/ci/prod
+* `models/` — Example models/tests (staging → marts)
+* `scripts/` — CI helpers (create/drop dataset, Slim CI, compare template)
+* `infra/` — One‑time GCP bootstrap (APIs, SAs, WIF/OIDC, datasets, Artifact Registry, Cloud Run Job, Scheduler)
+
+  * Uses **Workload Identity Federation** for GitHub Actions (no long‑lived keys).
+
+---
+
+## Local Development (per‑developer sandbox)
+
+**Prereqs**
+
+* `python -m pip install "dbt-core==1.9.0" "dbt-bigquery==1.9.0"`
+* `gcloud` installed & authenticated: `gcloud auth application-default login`
+
+**Environment**
+
+```bash
+export DBT_TARGET=dev
+export DBT_GCP_PROJECT_DEV=<your-dev-project>
+export DBT_BQ_LOCATION=US
+export DBT_USER=<yourname>
+export DBT_BQ_DATASET=analytics_${DBT_USER}   # per-dev dataset
+export DBT_PROFILES_DIR=./profiles
+```
+
+> Tip: The macro `macros/generate_schema_name.sql` appends `_${DBT_USER}` to your dataset in dev so multiple engineers never collide. Per‑developer schemas/datasets are a common pattern. ([Datafold][1])
+
+**Run**
+
+```bash
+dbt build
+dbt docs generate --static   # single-file docs artifact
+# open target/index.html locally
+```
+
+> The `--static` flag produces a single HTML doc you can host or share easily (no extra assets). See community write‑ups on hosting dbt docs as a static site. ([Hiflylabs][8], [Metaplane][9])
+
+---
+
+## Compare **Dev ↔ Prod**
+
+To sanity‑check the impact of your change, start with `scripts/compare_template.sql` (set `dev_project`, `dev_dataset`, `prod_project`, `prod_dataset`, `table_name`). For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][10])
+
+---
+
+## CI (Pull Requests with GitHub Actions)
+
+**Secrets required**
+
+* `GCP_WIF_PROVIDER` — Workload Identity Federation provider resource
+* `GCP_CI_SA_EMAIL` — CI runner service account email
+* `GCP_PROJECT_CI` — GCP project to host ephemeral CI datasets
+* `DBT_ARTIFACTS_BUCKET` — GCS bucket for manifests/docs
+
+**Flow**
+
+1. OIDC auth in GitHub Actions (no JSON keys). Ensure `permissions: id-token: write`.
+2. Create ephemeral BigQuery dataset `ci_pr_<PR>_<runid>` (cleaned up at end).
+3. **Slim CI**: `dbt build --select state:modified+ --defer --state <prod_artifacts>` so only changed nodes + dependents run, resolving upstream refs to prod objects. ([Medium][2], [Klaviyo Engineering][3])
+4. Generate docs and upload to `gs://$DBT_ARTIFACTS_BUCKET/ci/...`.
+5. Always drop the ephemeral dataset.
+
+> These Slim CI patterns (state selector + deferral) are documented in community engineering posts and case studies. ([Klaviyo Engineering][3], [Medium][2])
+
+---
+
+## Release (main → prod container)
+
+**Secrets required**
+
+* `GCP_WIF_PROVIDER`
+* `GCP_PROD_SA_EMAIL` — prod runner SA
+* `GCP_PROJECT_PROD` — prod project id
+* `GCP_SCHEDULER_INVOKER_SA` — Scheduler invoker SA email
+
+**Flow**
+
+1. Build Docker image and push to **Artifact Registry** (requires `roles/artifactregistry.writer` on the repo).
+2. Create/update **Cloud Run Job** (e.g., `dbt-prod`) with that image.
+3. Create/update **Cloud Scheduler** trigger on the job (“Triggers” tab in the Job UI), or via CLI, to run on a cron schedule.
+4. (Optional) Execute once after deploy to refresh prod artifacts.
+
+> Cloud Run **Jobs** are built for batch/ETL: they run to completion and can be executed on a schedule by Cloud Scheduler without standing up servers.
+
+---
+
+## Infra Bootstrap (one‑time per GCP project)
+
+**Prereqs**: `gcloud`, `bq`, `jq`; logged in with `gcloud auth login` and billing enabled.
+
+1. Copy and edit env
+
+```bash
+cp infra/.env.example infra/.env
+$EDITOR infra/.env
+```
+
+2. Enable APIs, create SAs, **Artifact Registry** repo, datasets, docs bucket, and IAM:
+
+```bash
+(cd infra && ./10-bootstrap.sh)
+```
+
+* Artifact Registry repo creation uses `gcloud artifacts repositories create ...`.
+
+3. Configure GitHub **OIDC / Workload Identity Federation** (no keys):
+
+```bash
+(cd infra && ./20-wif-github.sh)
+```
+
+* Put the printed `workload_identity_provider` and `service_account` into GitHub Secrets (`GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`).
+* We rely on the official `google-github-actions/auth` Action; OIDC requires `permissions: id-token: write` in the workflow.
+
+3a. Set GitHub Actions secrets automatically (optional helper):
+
+```
+(cd infra && ./60-set-github-secrets.sh)           # uses GITHUB_REPO from infra/.env
+# or pass repo explicitly
+(cd infra && ./60-set-github-secrets.sh your-org/your-repo)
+```
+
+This sets:
+- `GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`, `GCP_PROJECT_CI`, `DBT_ARTIFACTS_BUCKET`
+- `GCP_PROD_SA_EMAIL`, `GCP_PROJECT_PROD`, `GCP_SCHEDULER_INVOKER_SA`
+
+Notes:
+- The script uses `gh secret set` and values from `infra/.env`. It derives `GCP_WIF_PROVIDER` using the same pool/provider IDs as `20-wif-github.sh` (default `github-pool`/`github-provider`).
+- `DBT_ARTIFACTS_BUCKET` defaults to `DOCS_BUCKET_NAME` unless `DBT_ARTIFACTS_BUCKET` is already exported in your shell.
+
+4. After the first image exists (from the release workflow) you can deploy/update the job & Scheduler locally if needed:
+
+```bash
+(cd infra && ./30-deploy-cloud-run-job.sh)
+(cd infra && ./40-schedule-prod-job.sh)
+```
+
+* Scheduling Cloud Run **Jobs** can be done directly from the Job’s **Triggers** tab or with API/CLI; the console path is explicit in Google’s docs.
+
+5. Create a developer dataset (optional helper):
+
+```bash
+(cd infra && ./50-create-dev-dataset.sh user@example.com dbt_alice_dev)
+```
+
+* BigQuery IAM tip: **BigQuery Job User** at project level to run jobs, plus dataset‑level roles to read/write the target dataset (least privilege).
+
+---
+
+## IAM & Security (minimal, least‑privilege)
+
+* **CI SA**:
+
+  * Project: `roles/bigquery.jobUser` to run jobs.
+  * Dataset (CI dataset(s)): writer/editor as needed.
+* **Prod SA** (Cloud Run Job runtime):
+
+  * Project: `roles/bigquery.jobUser`
+  * Prod datasets: writer/editor as needed.
+* **Artifact Registry**:
+
+  * GitHub build/publish needs `roles/artifactregistry.writer` on the target repo; runners log in via OIDC.
+* **Scheduler → Cloud Run Job**:
+
+  * Give the Scheduler’s SA permission to invoke the job trigger (use the UI “Add Scheduler Trigger” flow to wire this securely).
+
+---
+
+## Operator IAM (to run infra scripts)
+
+The person/service running scripts in `infra/` needs elevated, temporary permissions to create resources and set IAM. Easiest is Project Owner during bootstrap; for least‑privilege, grant these roles to the operator and remove afterward:
+
+- Project-wide roles:
+  - `roles/serviceusage.serviceUsageAdmin` (enable required APIs)
+  - `roles/iam.serviceAccountAdmin` (create service accounts)
+  - `roles/iam.serviceAccountIamAdmin` (set IAM policy on service accounts)
+  - `roles/iam.workloadIdentityPoolAdmin` (create/update WIF pool/provider)
+  - `roles/artifactregistry.admin` (create Artifact Registry repo)
+  - `roles/storage.admin` (create bucket + set IAM)
+  - `roles/bigquery.admin` (create datasets + set dataset IAM)
+  - `roles/run.admin` (create/update Cloud Run Jobs + set IAM)
+  - `roles/cloudscheduler.admin` (create/update Scheduler jobs)
+- On the specific service accounts created by bootstrap:
+  - `roles/iam.serviceAccountUser` on the prod runner SA (required to deploy a Run Job with `--service-account`)
+  - `roles/iam.serviceAccountUser` on the scheduler invoker SA (if you need to impersonate it during setup)
+
+Notes:
+- These are for the operator only. Runtime SAs (CI and Prod) use the minimal roles listed above in “IAM & Security”.
+- Many orgs grant Project Owner to the bootstrapper, run `infra/10-bootstrap.sh` and `infra/20-wif-github.sh`, then revoke and keep least‑privilege going forward.
+
+Check your current permissions:
+
+```
+(cd infra && bash ./check-operator-iam.sh)
+```
+
+The script compares your active gcloud principal against the required project roles and flags any missing ones. It also suggests `serviceAccountUser` bindings on specific SAs if needed. It checks direct bindings; if you receive roles via a group, it may not detect that.
+
+---
+
+## Docs & Artifacts
+
+* CI publishes `manifest.json` and optional static docs to your `DBT_ARTIFACTS_BUCKET`.
+* For static docs, we use `dbt docs generate --static` and host a single HTML file if needed (see community examples of static hosting). ([Hiflylabs][8], [Metaplane][9])
+
+---
+
+## Operational Notes
+
+* **BigQuery mapping**: In BigQuery, datasets are the logical containers for tables/views; this template uses dataset boundaries to isolate environments and developers.
+* **Slim CI + deferral** keeps PR runs fast and realistic by resolving unchanged upstream refs to prod objects. Community case studies detail this approach and command flags. ([Medium][2], [Klaviyo Engineering][3])
+* **Cloud Run Job timeouts**: Jobs are designed for long‑running work with configurable task timeouts (much longer than Cloud Run services’ request timeouts).
+* **Docker auth to Artifact Registry**: If you push locally, configure Docker credential helper: `gcloud auth configure-docker <region>-docker.pkg.dev`.
+
+---
+
+## Next Steps
+
+* Replace placeholder IDs in workflows and `infra/.env`.
+* Decide on the dataset naming convention and adjust/remove `macros/generate_schema_name.sql` if not needed.
+* Add models/tests and any packages to `packages.yml`.
+* Consider a formal **data diff** step in CI to compare dev vs prod tables on changed models. ([Datafold][10])
+
+---
+
+## Acknowledgements (Inspiration & References)
+
+* **Per‑developer environments & environment strategy** — Datafold’s guide on dbt development environments. ([Datafold][1])
+* **Slim CI with `state:modified+` & `--defer`** — Implementation notes and examples from melbdataguy and Klaviyo Engineering. ([Medium][2], [Klaviyo Engineering][3])
+* **Data Diff Concept** — Overview of table‑level diffing for dev vs prod validation. ([Datafold][10])
+
+---
+
+### References
+
+[1]: https://www.datafold.com/blog/how-to-setup-dbt-development-environments "Optimizing dbt development environments | Datafold"
+[2]: https://melbdataguy.medium.com/implementing-ci-cd-for-dbt-core-with-bigquery-and-github-actions-f930d48a674b "Implementing CI/CD for dbt-core with BigQuery and Github Actions | by melbdataguy | Medium"
+[3]: https://klaviyo.tech/continuous-integration-with-dbt-part-2-47c093a0548e "Continuous Integration with dbt (Part 2) | by Corey Angers | Klaviyo Engineering"
+[8]: https://hiflylabs.com/blog/2023/3/16/dbt-docs-as-a-static-website?utm_source=chatgpt.com "dbt Docs as a Static Website"
+[9]: https://www.metaplane.dev/blog/host-and-share-dbt-docs?utm_source=chatgpt.com "3 ways to host and share dbt docs"
+[10]: https://www.datafold.com/blog/what-the-heck-is-data-diffing?utm_source=chatgpt.com "What the heck is data diffing?!"

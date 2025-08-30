@@ -1,0 +1,29 @@
+dbt_core_gcloud:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: bigquery
+      method: "{{ env_var('DBT_BQ_METHOD', 'oauth') }}"
+      project: "{{ env_var('DBT_GCP_PROJECT_DEV') }}"
+      dataset: "{{ env_var('DBT_BQ_DATASET', 'analytics_' ~ env_var('DBT_USER', 'local')) }}"
+      location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
+      threads: 4
+      priority: interactive
+    ci:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      project: "{{ env_var('DBT_GCP_PROJECT_CI') }}"
+      dataset: "{{ env_var('DBT_BQ_DATASET') }}"
+      location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
+      threads: 4
+      priority: interactive
+    prod:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('DBT_GCP_PROJECT_PROD') }}"
+      dataset: "{{ env_var('DBT_BQ_DATASET_PROD', 'analytics_prod') }}"
+      location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
+      threads: 8
+      priority: interactive
+

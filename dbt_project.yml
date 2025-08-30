@@ -1,0 +1,19 @@
+name: dbt_core_gcloud_template
+version: 1.0.0
+require-dbt-version: ">=1.9.0,<2.0.0"
+profile: dbt_core_gcloud
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  +on_schema_change: "append_new_columns"
+
+  dbt_core_gcloud_template:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
