@@ -25,7 +25,7 @@ dbt_core_gcloud:
       type: bigquery
       method: oauth
       project: "{{ env_var('DBT_GCP_PROJECT_PROD') }}"
-      dataset: "{{ env_var('DBT_BQ_DATASET_PROD', 'analytics_prod') }}"
+      dataset: "{{ env_var('DBT_BQ_DATASET_PROD', 'analytics') }}"
       location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
       threads: 8
       priority: interactive

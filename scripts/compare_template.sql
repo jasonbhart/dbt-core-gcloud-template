@@ -3,7 +3,7 @@
 DECLARE dev_project STRING DEFAULT 'my-dev-project';
 DECLARE dev_dataset STRING DEFAULT 'analytics_yourname';
 DECLARE prod_project STRING DEFAULT 'my-prod-project';
-DECLARE prod_dataset STRING DEFAULT 'analytics_prod';
+DECLARE prod_dataset STRING DEFAULT 'analytics';
 DECLARE table_name  STRING DEFAULT 'fct_example';
 
 -- Row count comparison

@@ -46,12 +46,12 @@ jobs:
           if gcloud run jobs describe "$JOB" --region "${{ env.REGION }}" >/dev/null 2>&1; then
             gcloud run jobs update "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}"
           else
             gcloud run jobs create "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics_prod,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}" \
               --memory=2Gi --cpu=1 --max-retries=0
           fi

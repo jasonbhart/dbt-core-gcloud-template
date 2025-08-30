@@ -15,7 +15,7 @@
   {% set _dev_project = dev_project or target.project %}
   {% set _prod_project = prod_project or env_var('DBT_GCP_PROJECT_PROD') or target.project %}
   {% set _dev_dataset = dev_dataset or (dev_dataset_prefix ~ user) %}
-  {% set _prod_dataset = prod_dataset or env_var('DBT_BQ_DATASET_PROD', 'analytics_prod') %}
+  {% set _prod_dataset = prod_dataset or env_var('DBT_BQ_DATASET_PROD', 'analytics') %}
 
   {# counts #}
   {% set counts_sql %}
