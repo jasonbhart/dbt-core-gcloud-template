@@ -64,6 +64,9 @@ info "Ensuring service accounts"
 ensure_sa "${CI_SA_ID}" "dbt CI SA"
 ensure_sa "${PROD_SA_ID}" "dbt Prod SA"
 ensure_sa "${SCHEDULER_SA_ID}" "Scheduler Invoker SA"
+if [[ -n "${DOCS_VIEWER_SA_ID:-}" ]]; then
+  ensure_sa "${DOCS_VIEWER_SA_ID}" "Docs Viewer SA"
+fi
 
 info "Ensuring Artifact Registry repo"
 ensure_ar_repo
@@ -95,6 +98,20 @@ if ! gcloud storage buckets get-iam-policy "gs://${DOCS_BUCKET_NAME}" --format=j
   info "Added storage.objectAdmin on bucket to ${PROD_SA_EMAIL}"
 else
   info "Bucket IAM already set for ${PROD_SA_EMAIL}"
+fi
+
+# Allow docs viewer SA to read docs (if defined)
+if [[ -n "${DOCS_VIEWER_SA_ID:-}" ]]; then
+  local viewer_email="${DOCS_VIEWER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+  if ! gcloud storage buckets get-iam-policy "gs://${DOCS_BUCKET_NAME}" --format=json | jq -e --arg m "serviceAccount:${viewer_email}" '.bindings[]? | select(.role=="roles/storage.objectViewer") | .members[]? | select(.==$m)' >/dev/null; then
+    gcloud storage buckets add-iam-policy-binding "gs://${DOCS_BUCKET_NAME}" \
+      --member="serviceAccount:${viewer_email}" \
+      --role="roles/storage.objectViewer" \
+      --project "${PROJECT_ID}" --quiet
+    info "Added storage.objectViewer on bucket to ${viewer_email}"
+  else
+    info "Bucket IAM already set for docs viewer SA"
+  fi
 fi
 
 info "Bootstrap complete."

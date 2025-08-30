@@ -240,6 +240,52 @@ The script compares your active gcloud principal against the required project ro
 
 ---
 
+## Serve dbt Docs (HTTP)
+
+The job can generate a single-file site (`target/index.html`) via `dbt docs generate --static` and upload it to the docs bucket. You have a few options to view it over HTTP:
+
+- Option A — Simple public website (fastest)
+  - Make the docs bucket a static website and grant public read.
+  - Configure and print URL:
+    - `(cd infra && PUBLIC=true ./70-configure-docs-website.sh)`
+    - Then open: `https://storage.googleapis.com/${DOCS_BUCKET_NAME}/index.html`
+  - Caution: Public means world-readable. Use only if acceptable.
+
+- Option B — Private access (no public read)
+  - Keep the bucket private (default). View via Cloud Console (Storage > Buckets > your bucket > `index.html` > Open in browser) when authenticated.
+  - For a private HTTP endpoint, consider a Cloud Run proxy or Load Balancer + CDN with IAM integration. Ask if you want me to add a tiny Cloud Run service that serves the file from GCS using the service account.
+
+- Option C — Load Balancer + CDN (prod-grade)
+  - Create an HTTPS Load Balancer with a backend bucket pointing to your docs bucket, enable Cloud CDN, and add a managed certificate for a custom domain (e.g., `docs.example.com`).
+  - This keeps the bucket private to Google and exposes content via the edge proxy; can be combined with Identity-Aware Proxy (IAP) for auth.
+
+Note: The infra bootstrap script creates the docs bucket but does not make it public. Use `infra/70-configure-docs-website.sh` to enable static website and optional public access.
+
+### Docs Viewer (Cloud Run, IAM‑only)
+
+For private, simple access without IAP or a load balancer, deploy a small Cloud Run service that reads `index.html` from your docs bucket:
+
+1) Ensure the Docs Viewer service account exists and has read access (created by `infra/10-bootstrap.sh` as `DOCS_VIEWER_SA_ID`).
+2) Build and deploy the service:
+```
+(cd infra && ./80-deploy-docs-viewer.sh)
+```
+3) Grant users/groups access to view (run.invoker):
+```
+(cd infra && ./81-grant-docs-viewer-access.sh group:[email protected])
+```
+4) Open the Cloud Run service URL printed by the deploy script.
+
+Runtime envs:
+- `DOCS_BUCKET_NAME` (required): bucket that contains `index.html`.
+- `DOCS_INDEX_OBJECT` (optional): defaults to `index.html`.
+- `DOCS_CACHE_CONTROL` (optional): default `public, max-age=60`.
+
+Automatic upload on prod runs:
+- If the prod job sets `GENERATE_DOCS=true` and `DOCS_BUCKET_NAME=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
+
+---
+
 ## Operational Notes
 
 * **BigQuery mapping**: In BigQuery, datasets are the logical containers for tables/views; this template uses dataset boundaries to isolate environments and developers.
