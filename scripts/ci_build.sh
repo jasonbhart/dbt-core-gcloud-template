@@ -9,10 +9,9 @@ if [[ -n "${DBT_ARTIFACTS_BUCKET:-}" ]] && gsutil ls "gs://${DBT_ARTIFACTS_BUCKE
   echo "Pulled prod manifest for Slim CI defer"
 fi
 
-dbt deps
+dbt --log-format json deps
 if [[ "${HAS_STATE}" == "true" ]]; then
-  dbt build --target ci --select "state:modified+" --defer --state prod_state
+  dbt --log-format json build --target ci --select "state:modified+" --defer --state prod_state
 else
-  dbt build --target ci
+  dbt --log-format json build --target ci
 fi
-

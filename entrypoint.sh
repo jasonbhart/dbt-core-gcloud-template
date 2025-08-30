@@ -9,11 +9,42 @@ if [[ "${RUN_PRE_HOOK:-false}" == "true" ]]; then
   python hooks/pre_run.py
 fi
 
-dbt deps
+# Use JSON logs for easier parsing in Cloud Logging
+dbt --log-format json deps
 
 DBT_BUILD_ARGS="${DBT_BUILD_ARGS:-}"
 echo "dbt build --target ${DBT_TARGET} ${DBT_BUILD_ARGS}"
-dbt build --target "${DBT_TARGET}" ${DBT_BUILD_ARGS}
+dbt --log-format json build --target "${DBT_TARGET}" ${DBT_BUILD_ARGS}
+
+# Emit a one-line JSON summary for alerting/observability
+python - << 'PY'
+import json, os, sys
+path = os.path.join('target','run_results.json')
+try:
+    with open(path) as f:
+        doc = json.load(f)
+except Exception as e:
+    print(json.dumps({"dbt_summary": {"status": "missing_run_results", "error": str(e)}}))
+    sys.exit(0)
+
+results = doc.get('results', [])
+status_counts = {}
+for r in results:
+    s = r.get('status', 'unknown')
+    status_counts[s] = status_counts.get(s, 0) + 1
+
+summary = {
+    "total": len(results),
+    "elapsed": doc.get('elapsed_time'),
+    "statuses": status_counts,
+}
+
+# Backward-compatible booleans
+summary["failed"] = status_counts.get('error', 0) + status_counts.get('fail', 0)
+summary["successful"] = status_counts.get('success', 0)
+
+print(json.dumps({"dbt_summary": summary}))
+PY
 
 if [[ "${GENERATE_DOCS:-false}" == "true" ]]; then
   dbt docs generate --static
