@@ -13,7 +13,7 @@ VIEWER_SA_EMAIL="${DOCS_VIEWER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "Building and pushing image: ${IMAGE_URI}"
 cd ..
-docker build -t "$IMAGE_URI" ./docs-viewer
+docker build -t "$IMAGE_URI" ./dbt-docs-viewer
 docker push "$IMAGE_URI"
 cd - >/dev/null
 
@@ -30,5 +30,5 @@ gcloud run deploy "$SERVICE" \
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
 echo "Service URL: $URL"
-echo "Grant access with: ./81-grant-docs-viewer-access.sh <principal>   # e.g., group:[email protected]"
+echo "Grant access with: ./81-grant-dbt-docs-viewer-access.sh <principal>   # e.g., group:[email protected]"
 

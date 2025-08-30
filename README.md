@@ -287,11 +287,11 @@ For private, simple access without IAP or a load balancer, deploy a small Cloud 
 1) Ensure the Docs Viewer service account exists and has read access (created by `infra/10-bootstrap.sh` as `DOCS_VIEWER_SA_ID`).
 2) Build and deploy the service:
 ```
-(cd infra && ./80-deploy-docs-viewer.sh)
+(cd infra && ./80-deploy-dbt-docs-viewer.sh)
 ```
 3) Grant users/groups access to view (run.invoker):
 ```
-(cd infra && ./81-grant-docs-viewer-access.sh group:[email protected])
+(cd infra && ./81-grant-dbt-docs-viewer-access.sh group:[email protected])
 ```
 4) Open the Cloud Run service URL printed by the deploy script.
 
