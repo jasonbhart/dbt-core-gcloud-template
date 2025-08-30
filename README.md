@@ -74,7 +74,26 @@ dbt docs generate --static   # single-file docs artifact
 
 ## Compare **Dev ↔ Prod**
 
-To sanity‑check the impact of your change, start with `scripts/compare_template.sql` (set `dev_project`, `dev_dataset`, `prod_project`, `prod_dataset`, `table_name`). For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][10])
+Option A — ad‑hoc SQL in BigQuery UI:
+- Use `scripts/compare_template.sql` (set `dev_project`, `dev_dataset`, `prod_project`, `prod_dataset`, and `table_name`).
+
+Option B — dbt macro (auto‑detects dev dataset via `DBT_USER`):
+- Export `DBT_USER` in your shell so the macro derives `analytics_${DBT_USER}`.
+- Run one of:
+```
+dbt run-operation dev_prod_diff --args '{"table_name":"fct_example", "limit": 100}'
+dbt run-operation dev_prod_diff_for_model --args '{"model_name":"fct_example", "limit": 100}'
+scripts/compare.sh fct_example [dev_project] [prod_project]
+```
+- Override defaults with args: `dev_project`, `prod_project`, `dev_dataset_prefix`, `prod_dataset`, `execute_query`.
+
+CI PR summary:
+- The PR workflow runs diffs on changed models and publishes:
+  - Per‑model text files under the “data‑diff” artifact
+  - A PR comment titled “DBT Data Diff Summary” with a table of row counts and diff counts
+  - Set `DIFF_LIMIT` in CI to control how many differing rows are sampled in logs (default 200 in this template)
+
+For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][10])
 
 ---
 

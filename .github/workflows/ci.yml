@@ -39,6 +39,8 @@ jobs:
           echo "DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }}" >> $GITHUB_ENV
           echo "DBT_USER=ci_${{ github.actor }}" >> $GITHUB_ENV
           echo "DBT_BQ_DATASET=ci_pr_${{ github.event.number }}_${{ github.run_id }}" >> $GITHUB_ENV
+          echo "DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }}" >> $GITHUB_ENV
+          echo "DIFF_LIMIT=200" >> $GITHUB_ENV
 
       - name: Create ephemeral dataset
         run: bash scripts/create_bq_dataset.sh
@@ -49,13 +51,50 @@ jobs:
       - name: Generate docs (optional preview)
         run: dbt docs generate --static
 
-      - name: Upload CI artifacts (docs + manifest)
+      - name: Generate data diffs for changed models
+        run: bash scripts/pr_data_diff.sh
+
+      - name: Upload CI artifacts (docs + manifest + data diffs)
         if: always()
         run: |
           gsutil -m rsync -r ./target "gs://${DBT_ARTIFACTS_BUCKET}/ci/pr-${{ github.event.number }}-${{ github.run_id }}/"
           gsutil cp target/manifest.json "gs://${DBT_ARTIFACTS_BUCKET}/ci/pr-${{ github.event.number }}-${{ github.run_id }}/manifest.json"
+          echo "Diff reports generated under diff_reports/"
+      - name: Attach data diffs to PR as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-diff-pr-${{ github.event.number }}-${{ github.run_id }}
+          path: diff_reports/
+
+      - name: Post summary comment on PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const core = require('@actions/core');
+            const path = 'diff_reports/summary.md';
+            let body;
+            try {
+              body = fs.readFileSync(path, 'utf8');
+            } catch (e) {
+              body = '# dbt Data Diff Summary\n\n(No changes or no summary generated)';
+            }
+            const header = 'DBT Data Diff Summary';
+            const fullBody = `<!-- dbt-data-diff -->\n${body}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const bot = 'github-actions[bot]';
+            const existing = comments.find(c => c.user && c.user.login === bot && c.body && c.body.includes('<!-- dbt-data-diff -->'));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: fullBody });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: fullBody });
+            }
 
       - name: Cleanup dataset
         if: always()
         run: bash scripts/drop_bq_dataset.sh
-
