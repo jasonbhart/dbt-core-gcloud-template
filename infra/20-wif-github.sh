@@ -9,7 +9,16 @@ PROVIDER_ID="github-provider"
 
 CI_SA_EMAIL="${CI_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-require_env(){ for v in "$@"; do [[ -z "${!v:-}" ]] && { echo "Missing env: $v"; exit 1; }; done; }
+require_env(){
+  local v
+  for v in "$@"; do
+    if [[ -z "${!v:-}" ]]; then
+      echo "Missing env: $v"
+      exit 1
+    fi
+  done
+  return 0
+}
 require_env PROJECT_ID PROJECT_NUMBER GITHUB_REPO CI_SA_ID
 
 echo "== Ensure Workload Identity Pool =="

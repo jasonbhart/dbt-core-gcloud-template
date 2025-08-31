@@ -54,11 +54,11 @@ export DBT_TARGET=dev
 export DBT_GCP_PROJECT_DEV=<your-dev-project>
 export DBT_BQ_LOCATION=US
 export DBT_USER=<yourname>
-export DBT_BQ_DATASET=analytics_${DBT_USER}   # per-dev dataset
+export DBT_BQ_DATASET=${PROD_DATASET:-analytics}_${DBT_USER}   # per-dev dataset
 export DBT_PROFILES_DIR=./profiles
 ```
 
-> Tip: The macro `macros/generate_schema_name.sql` appends `_${DBT_USER}` to your dataset in dev so multiple engineers never collide. Per‑developer schemas/datasets are a common pattern. ([Datafold][1])
+> Tip: Use a per‑developer dataset like `${PROD_DATASET}_${DBT_USER}` so multiple engineers never collide. Per‑developer schemas/datasets are a common pattern. ([Datafold][1])
 
 **Run**
 
@@ -75,23 +75,25 @@ dbt docs generate --static   # single-file docs artifact
 ## Compare **Dev ↔ Prod**
 
 Option A — ad‑hoc SQL in BigQuery UI:
-- Use `scripts/compare_template.sql` (set `dev_project`, `dev_dataset`, `prod_project`, `prod_dataset`, and `table_name`).
+* Use `scripts/compare_template.sql` (set `dev_project`, `dev_dataset`, `prod_project`, `prod_dataset`, and `table_name`).
 
-Option B — dbt macro (auto‑detects dev dataset via `DBT_USER`):
-- Export `DBT_USER` in your shell so the macro derives `analytics_${DBT_USER}`.
-- Run one of:
+Option B — parameterized macro or helper:
+* Export `DBT_USER` so the chosen naming (`${PROD_DATASET}_${DBT_USER}`) is stable in dev.
+* Run one of:
+
 ```
 dbt run-operation dev_prod_diff --args '{"table_name":"fct_example", "limit": 100}'
 dbt run-operation dev_prod_diff_for_model --args '{"model_name":"fct_example", "limit": 100}'
 scripts/compare.sh fct_example [dev_project] [prod_project]
 ```
+
 - Override defaults with args: `dev_project`, `prod_project`, `dev_dataset_prefix`, `prod_dataset`, `execute_query`.
 
 CI PR summary:
-- The PR workflow runs diffs on changed models and publishes:
-  - Per‑model text files under the “data‑diff” artifact
-  - A PR comment titled “DBT Data Diff Summary” with a table of row counts and diff counts
-  - Set `DIFF_LIMIT` in CI to control how many differing rows are sampled in logs (default 200 in this template)
+* The PR workflow runs diffs on changed models and publishes:
+  * Per‑model text files under the “data‑diff” artifact
+  * A PR comment titled “DBT Data Diff Summary” with a table of row counts and diff counts
+  * Set `DIFF_LIMIT` in CI to control how many differing rows are sampled in logs (default 200 in this template)
 
 For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][10])
 
@@ -175,12 +177,12 @@ $EDITOR infra/.env
 ```
 
 This sets:
-- `GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`, `GCP_PROJECT_CI`, `DBT_ARTIFACTS_BUCKET`
-- `GCP_PROD_SA_EMAIL`, `GCP_PROJECT_PROD`, `GCP_SCHEDULER_INVOKER_SA`
+* `GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`, `GCP_PROJECT_CI`, `DBT_ARTIFACTS_BUCKET`
+* `GCP_PROD_SA_EMAIL`, `GCP_PROJECT_PROD`, `GCP_SCHEDULER_INVOKER_SA`
 
 Notes:
-- The script uses `gh secret set` and values from `infra/.env`. It derives `GCP_WIF_PROVIDER` using the same pool/provider IDs as `20-wif-github.sh` (default `github-pool`/`github-provider`).
-- `DBT_ARTIFACTS_BUCKET` defaults to `DOCS_BUCKET_NAME` unless `DBT_ARTIFACTS_BUCKET` is already exported in your shell.
+* The script uses `gh secret set` and values from `infra/.env`. It derives `GCP_WIF_PROVIDER` using the same pool/provider IDs as `20-wif-github.sh` (default `github-pool`/`github-provider`).
+* `DBT_ARTIFACTS_BUCKET` defaults to `DOCS_BUCKET_NAME` unless `DBT_ARTIFACTS_BUCKET` is already exported in your shell.
 
 4. After the first image exists (from the release workflow) you can deploy/update the job & Scheduler locally if needed:
 
@@ -191,10 +193,21 @@ Notes:
 
 * Scheduling Cloud Run **Jobs** can be done directly from the Job’s **Triggers** tab or with API/CLI; the console path is explicit in Google’s docs.
 
-5. Create a developer dataset (optional helper):
+5. Notification channels (optional helper for alerts):
 
 ```bash
-(cd infra && ./50-create-dev-dataset.sh user@example.com dbt_alice_dev)
+(cd infra && ./85-ensure-notification-channels.sh)          # creates/reuses channels and updates .env + writes helper env file
+# specify emails explicitly (otherwise uses DEV_GROUP_EMAIL or your active gcloud account)
+(cd infra && ./85-ensure-notification-channels.sh --email [email protected],[email protected])
+# export into current shell: source the script (it also writes infra/.notification_channels.env)
+source infra/85-ensure-notification-channels.sh
+```
+
+6. Create a developer dataset (optional helper):
+
+```bash
+(cd infra && ./50-ensure-dev-datasets.sh)                 # operator + optional infra/devs.txt
+(cd scripts/utils && ./create-dev-dataset.sh user@example.com dbt_alice_dev)   # one-off
 ```
 
 * BigQuery IAM tip: **BigQuery Job User** at project level to run jobs, plus dataset‑level roles to read/write the target dataset (least privilege).
@@ -220,27 +233,73 @@ Notes:
 
 ---
 
+## Developer Onboarding
+
+Ensure developers have a per‑dev dataset and the minimal IAM needed to work safely.
+
+1. Optional: grant project‑level BigQuery Job User to a dev group once
+
+   * Set `DEV_GROUP_EMAIL` in `infra/.env` (e.g., `data-devs@your-domain.com`).
+   * Run `./infra/10-bootstrap.sh` (idempotent). This grants `roles/bigquery.jobUser` to the group.
+
+   Alternatively, grant per-user Job User during dataset creation with `--grant-job-user`.
+
+2. Add developers in `infra/devs.txt`
+
+   * One entry per line: `email[,dataset]`. The dataset is optional.
+   * If omitted, the script defaults to `${PROD_DATASET}_${short}`, where `short` is the email local-part lowercased and sanitized to `[a-z0-9_]`.
+
+   Example `infra/devs.txt`:
+
+   ```
+   alice@example.com,analytics_alice
+   bob@example.com
+   # carol defaults to ${PROD_DATASET}_carol
+   carol@example.com
+   ```
+
+3. Ensure datasets
+
+   ```bash
+   (cd infra && ./50-ensure-dev-datasets.sh)
+   # or, to also grant project-level Job User per-user
+   (cd infra && ./50-ensure-dev-datasets.sh --grant-job-user)
+   ```
+
+4. One-off: create a single dev dataset
+
+   ```bash
+   (cd scripts/utils && ./create-dev-dataset.sh dev@example.com [dataset] [--grant-job-user])
+   ```
+
+Notes:
+
+* Datasets and IAM settings are idempotent; you can re-run safely after editing `infra/devs.txt`.
+* Group-based Job User is recommended at scale. Use `--grant-job-user` for exceptions.
+
+---
+
 ## Operator IAM (to run infra scripts)
 
 The person/service running scripts in `infra/` needs elevated, temporary permissions to create resources and set IAM. Easiest is Project Owner during bootstrap; for least‑privilege, grant these roles to the operator and remove afterward:
 
-- Project-wide roles:
-  - `roles/serviceusage.serviceUsageAdmin` (enable required APIs)
-  - `roles/iam.serviceAccountAdmin` (create service accounts)
-  - `roles/iam.serviceAccountIamAdmin` (set IAM policy on service accounts)
-  - `roles/iam.workloadIdentityPoolAdmin` (create/update WIF pool/provider)
-  - `roles/artifactregistry.admin` (create Artifact Registry repo)
-  - `roles/storage.admin` (create bucket + set IAM)
-  - `roles/bigquery.admin` (create datasets + set dataset IAM)
-  - `roles/run.admin` (create/update Cloud Run Jobs + set IAM)
-  - `roles/cloudscheduler.admin` (create/update Scheduler jobs)
-- On the specific service accounts created by bootstrap:
-  - `roles/iam.serviceAccountUser` on the prod runner SA (required to deploy a Run Job with `--service-account`)
-  - `roles/iam.serviceAccountUser` on the scheduler invoker SA (if you need to impersonate it during setup)
+* Project-wide roles:
+  * `roles/serviceusage.serviceUsageAdmin` (enable required APIs)
+  * `roles/iam.serviceAccountAdmin` (create service accounts)
+  * `roles/iam.serviceAccountIamAdmin` (set IAM policy on service accounts)
+  * `roles/iam.workloadIdentityPoolAdmin` (create/update WIF pool/provider)
+  * `roles/artifactregistry.admin` (create Artifact Registry repo)
+  * `roles/storage.admin` (create bucket + set IAM)
+  * `roles/bigquery.admin` (create datasets + set dataset IAM)
+  * `roles/run.admin` (create/update Cloud Run Jobs + set IAM)
+  * `roles/cloudscheduler.admin` (create/update Scheduler jobs)
+* On the specific service accounts created by bootstrap:
+  * `roles/iam.serviceAccountUser` on the prod runner SA (required to deploy a Run Job with `--service-account`)
+  * `roles/iam.serviceAccountUser` on the scheduler invoker SA (if you need to impersonate it during setup)
 
 Notes:
-- These are for the operator only. Runtime SAs (CI and Prod) use the minimal roles listed above in “IAM & Security”.
-- Many orgs grant Project Owner to the bootstrapper, run `infra/10-bootstrap.sh` and `infra/20-wif-github.sh`, then revoke and keep least‑privilege going forward.
+* These are for the operator only. Runtime SAs (CI and Prod) use the minimal roles listed above in “IAM & Security”.
+* Many orgs grant Project Owner to the bootstrapper, run `infra/10-bootstrap.sh` and `infra/20-wif-github.sh`, then revoke and keep least‑privilege going forward.
 
 Check your current permissions:
 
@@ -263,20 +322,20 @@ The script compares your active gcloud principal against the required project ro
 
 The job can generate a single-file site (`target/index.html`) via `dbt docs generate --static` and upload it to the docs bucket. You have a few options to view it over HTTP:
 
-- Option A — Simple public website (fastest)
-  - Make the docs bucket a static website and grant public read.
-  - Configure and print URL:
-    - `(cd infra && PUBLIC=true ./70-configure-docs-website.sh)`
-    - Then open: `https://storage.googleapis.com/${DOCS_BUCKET_NAME}/index.html`
-  - Caution: Public means world-readable. Use only if acceptable.
+* Option A — Simple public website (fastest)
+  * Make the docs bucket a static website and grant public read.
+  * Configure and print URL:
+    * `(cd infra && PUBLIC=true ./70-configure-docs-website.sh)`
+    * Then open: `https://storage.googleapis.com/${DOCS_BUCKET_NAME}/index.html`
+  * Caution: Public means world-readable. Use only if acceptable.
 
-- Option B — Private access (no public read)
-  - Keep the bucket private (default). View via Cloud Console (Storage > Buckets > your bucket > `index.html` > Open in browser) when authenticated.
-  - For a private HTTP endpoint, consider a Cloud Run proxy or Load Balancer + CDN with IAM integration. Ask if you want me to add a tiny Cloud Run service that serves the file from GCS using the service account.
+* Option B — Private access (no public read)
+  * Keep the bucket private (default). View via Cloud Console (Storage > Buckets > your bucket > `index.html` > Open in browser) when authenticated.
+  * For a private HTTP endpoint, consider a Cloud Run proxy or Load Balancer + CDN with IAM integration. Ask if you want me to add a tiny Cloud Run service that serves the file from GCS using the service account.
 
-- Option C — Load Balancer + CDN (prod-grade)
-  - Create an HTTPS Load Balancer with a backend bucket pointing to your docs bucket, enable Cloud CDN, and add a managed certificate for a custom domain (e.g., `docs.example.com`).
-  - This keeps the bucket private to Google and exposes content via the edge proxy; can be combined with Identity-Aware Proxy (IAP) for auth.
+* Option C — Load Balancer + CDN (prod-grade)
+  * Create an HTTPS Load Balancer with a backend bucket pointing to your docs bucket, enable Cloud CDN, and add a managed certificate for a custom domain (e.g., `docs.example.com`).
+  * This keeps the bucket private to Google and exposes content via the edge proxy; can be combined with Identity-Aware Proxy (IAP) for auth.
 
 Note: The infra bootstrap script creates the docs bucket but does not make it public. Use `infra/70-configure-docs-website.sh` to enable static website and optional public access.
 
@@ -286,22 +345,26 @@ For private, simple access without IAP or a load balancer, deploy a small Cloud 
 
 1) Ensure the Docs Viewer service account exists and has read access (created by `infra/10-bootstrap.sh` as `DOCS_VIEWER_SA_ID`).
 2) Build and deploy the service:
+
 ```
 (cd infra && ./80-deploy-dbt-docs-viewer.sh)
 ```
+
 3) Grant users/groups access to view (run.invoker):
+
 ```
 (cd infra && ./81-grant-dbt-docs-viewer-access.sh group:[email protected])
 ```
+
 4) Open the Cloud Run service URL printed by the deploy script.
 
 Runtime envs:
-- `DOCS_BUCKET_NAME` (required): bucket that contains `index.html`.
-- `DOCS_INDEX_OBJECT` (optional): defaults to `index.html`.
-- `DOCS_CACHE_CONTROL` (optional): default `public, max-age=60`.
+* `DOCS_BUCKET_NAME` (required): bucket that contains `index.html`.
+* `DOCS_INDEX_OBJECT` (optional): defaults to `index.html`.
+* `DOCS_CACHE_CONTROL` (optional): default `public, max-age=60`.
 
 Automatic upload on prod runs:
-- If the prod job sets `GENERATE_DOCS=true` and `DOCS_BUCKET_NAME=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
+* If the prod job sets `GENERATE_DOCS=true` and `DOCS_BUCKET_NAME=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
 
 ---
 
@@ -317,7 +380,7 @@ Automatic upload on prod runs:
 ## Next Steps
 
 * Replace placeholder IDs in workflows and `infra/.env`.
-* Decide on the dataset naming convention and adjust/remove `macros/generate_schema_name.sql` if not needed.
+* Decide on the dataset naming convention. This template uses `${PROD_DATASET}_${DBT_USER}` for dev by default.
 * Add models/tests and any packages to `packages.yml`.
 * Consider a formal **data diff** step in CI to compare dev vs prod tables on changed models. ([Datafold][10])
 

@@ -4,7 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./.env
 
-require_env(){ for v in "$@"; do [[ -z "${!v:-}" ]] && { echo "Missing env: $v"; exit 1; }; done; }
+require_env(){
+  local v
+  for v in "$@"; do
+    if [[ -z "${!v:-}" ]]; then
+      echo "Missing env: $v"
+      exit 1
+    fi
+  done
+  return 0
+}
 require_env PROJECT_ID REGION SCHEDULER_SA_ID
 
 SCHED_SA_EMAIL="${SCHEDULER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"

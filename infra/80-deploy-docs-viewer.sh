@@ -4,7 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./.env
 
-require_env(){ for v in "$@"; do [[ -z "${!v:-}" ]] && { echo "Missing env: $v"; exit 1; }; done; }
+require_env(){
+  local v
+  for v in "$@"; do
+    if [[ -z "${!v:-}" ]] ; then
+      echo "Missing env: $v"
+      exit 1
+    fi
+  done
+  return 0
+}
 require_env PROJECT_ID REGION AR_REPO DOCS_BUCKET_NAME DOCS_VIEWER_SERVICE DOCS_VIEWER_SA_ID
 
 SERVICE="$DOCS_VIEWER_SERVICE"
@@ -13,7 +22,13 @@ VIEWER_SA_EMAIL="${DOCS_VIEWER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "Building and pushing image: ${IMAGE_URI}"
 cd ..
-docker build -t "$IMAGE_URI" ./dbt-docs-viewer
+APP_DIR="${DOCS_VIEWER_DIR:-./docs-viewer}"
+if [[ ! -d "$APP_DIR" ]]; then
+  echo "Docs viewer app directory not found: $APP_DIR" >&2
+  echo "Set DOCS_VIEWER_DIR to the app path, or place the app in ./docs-viewer" >&2
+  exit 1
+fi
+docker build -t "$IMAGE_URI" "$APP_DIR"
 docker push "$IMAGE_URI"
 cd - >/dev/null
 
@@ -28,7 +43,6 @@ gcloud run deploy "$SERVICE" \
   --max-instances=2 \
   --project "$PROJECT_ID"
 
-URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')
 echo "Service URL: $URL"
-echo "Grant access with: ./81-grant-dbt-docs-viewer-access.sh <principal>   # e.g., group:[email protected]"
-
+echo "Grant access with: ./81-grant-docs-viewer-access.sh <principal>   # e.g., group:[email protected]"

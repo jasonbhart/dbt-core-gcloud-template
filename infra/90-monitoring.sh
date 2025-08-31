@@ -10,6 +10,19 @@ JOB_NAME=${JOB_NAME:-dbt-prod}
 SCHED_JOB_NAME=${SCHED_JOB_NAME:-dbt-prod-nightly}
 CHANNELS=${NOTIFICATION_CHANNELS:-}
 
+# Pick monitoring policies command (beta preferred, else alpha)
+pick_policies_cmd() {
+  if gcloud beta monitoring policies --help >/dev/null 2>&1; then
+    echo "gcloud beta monitoring policies"
+  elif gcloud alpha monitoring policies --help >/dev/null 2>&1; then
+    echo "gcloud alpha monitoring policies"
+  else
+    echo ""; return 1
+  fi
+}
+
+POL_CMD=$(pick_policies_cmd) || { echo "gcloud monitoring policies command not available (alpha/beta)." >&2; exit 2; }
+
 ensure_log_metric() {
   local name="$1" filter="$2" desc="$3"
   if gcloud logging metrics describe "$name" --project "$PROJECT_ID" >/dev/null 2>&1; then
@@ -21,7 +34,7 @@ ensure_log_metric() {
 }
 
 metric_policy_json() {
-  local display="$1" metric="$2" alignment="$3" per_series="$4" comparison="$5" threshold="$6" duration="$7"
+  local display="$1" metric="$2" resource_type="$3" alignment="$4" per_series="$5" comparison="$6" threshold="$7" duration="$8"
   cat <<JSON
 {
   "displayName": "$display",
@@ -30,7 +43,7 @@ metric_policy_json() {
     {
       "displayName": "$display condition",
       "conditionThreshold": {
-        "filter": "metric.type=\"logging.googleapis.com/user/${metric}\" resource.type=\"global\"",
+        "filter": "metric.type=\"logging.googleapis.com/user/${metric}\" resource.type=\"${resource_type}\"",
         "aggregations": [
           {"alignmentPeriod": "$alignment", "perSeriesAligner": "$per_series"}
         ],
@@ -46,14 +59,14 @@ JSON
 
 ensure_policy() {
   local name="$1" file="$2"
-  if gcloud monitoring policies list --format="value(displayName)" --project "$PROJECT_ID" | grep -Fx "$name" >/dev/null 2>&1; then
+  if $POL_CMD list --format="value(displayName)" --project "$PROJECT_ID" | grep -Fx "$name" >/dev/null 2>&1; then
     echo "Policy exists: $name"
   else
     echo "Creating policy: $name"
     if [[ -n "$CHANNELS" ]]; then
-      gcloud monitoring policies create --policy-from-file="$file" --notification-channels="$CHANNELS" --project "$PROJECT_ID"
+      $POL_CMD create --policy-from-file="$file" --notification-channels="$CHANNELS" --project "$PROJECT_ID"
     else
-      gcloud monitoring policies create --policy-from-file="$file" --project "$PROJECT_ID"
+      $POL_CMD create --policy-from-file="$file" --project "$PROJECT_ID"
     fi
   fi
 }
@@ -74,15 +87,14 @@ ensure_log_metric "bigquery_job_errors" \
 TMP=$(mktemp)
 
 # Policies (count > 0 over 5m)
-metric_policy_json "Cloud Run Job Errors (${JOB_NAME})" "cloud_run_job_errors" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
+metric_policy_json "Cloud Run Job Errors (${JOB_NAME})" "cloud_run_job_errors" "cloud_run_job" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
 ensure_policy "Cloud Run Job Errors (${JOB_NAME})" "$TMP"
 
-metric_policy_json "Cloud Scheduler Job Errors (${SCHED_JOB_NAME})" "cloud_scheduler_job_errors" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
+metric_policy_json "Cloud Scheduler Job Errors (${SCHED_JOB_NAME})" "cloud_scheduler_job_errors" "cloud_scheduler_job" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
 ensure_policy "Cloud Scheduler Job Errors (${SCHED_JOB_NAME})" "$TMP"
 
-metric_policy_json "BigQuery Job Errors" "bigquery_job_errors" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
+metric_policy_json "BigQuery Job Errors" "bigquery_job_errors" "bigquery_project" "300s" "ALIGN_RATE" "COMPARISON_GT" 0 "0s" > "$TMP"
 ensure_policy "BigQuery Job Errors" "$TMP"
 
 rm -f "$TMP"
 echo "Monitoring alerts ensured."
-

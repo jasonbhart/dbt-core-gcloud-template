@@ -60,8 +60,7 @@ for key in "${!secrets[@]}"; do
     continue
   fi
   echo "Setting secret $key"
-  printf %s "$val" | gh secret set "$key" -R "$GITHUB_REPO" -f - >/dev/null
+  gh secret set "$key" -R "$GITHUB_REPO" --body "$val" >/dev/null
 done
 
 echo "Done. Verify with: gh secret list -R $GITHUB_REPO"
-
