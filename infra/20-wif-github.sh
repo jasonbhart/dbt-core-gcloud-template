@@ -8,6 +8,7 @@ POOL_ID="github-pool"
 PROVIDER_ID="github-provider"
 
 CI_SA_EMAIL="${CI_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+PROD_SA_EMAIL="${PROD_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 require_env(){
   local v
@@ -19,7 +20,7 @@ require_env(){
   done
   return 0
 }
-require_env PROJECT_ID PROJECT_NUMBER GITHUB_REPO CI_SA_ID
+require_env PROJECT_ID PROJECT_NUMBER GITHUB_REPO CI_SA_ID PROD_SA_ID
 
 echo "== Ensure Workload Identity Pool =="
 if gcloud iam workload-identity-pools describe "${POOL_ID}" --location=global --project "${PROJECT_ID}" >/dev/null 2>&1; then
@@ -52,19 +53,28 @@ else
     --attribute-condition="assertion.repository=='${GITHUB_REPO}'"
 fi
 
-echo "== Ensure repo can impersonate CI service account =="
+echo "== Ensure repo can impersonate CI and PROD service accounts =="
 WIF_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}"
-TMP_JSON="$(mktemp)"
-gcloud iam service-accounts get-iam-policy "${CI_SA_EMAIL}" --format=json >"$TMP_JSON"
-if jq -e --arg member "principalSet://iam.googleapis.com/${WIF_RESOURCE}/attribute.repository/${GITHUB_REPO}" '.bindings[]? | select(.role=="roles/iam.workloadIdentityUser") | .members[]? | select(.==$member)' "$TMP_JSON" >/dev/null; then
-  echo "WorkloadIdentityUser binding already exists."
-else
-  gcloud iam service-accounts add-iam-policy-binding "${CI_SA_EMAIL}" \
-    --project="${PROJECT_ID}" \
-    --role="roles/iam.workloadIdentityUser" \
-    --member="principalSet://iam.googleapis.com/${WIF_RESOURCE}/attribute.repository/${GITHUB_REPO}"
-fi
-rm -f "$TMP_JSON"
+ensure_wif_binding(){
+  local sa_email="$1"
+  local tmp_json
+  tmp_json="$(mktemp)"
+  gcloud iam service-accounts get-iam-policy "${sa_email}" --format=json >"${tmp_json}"
+  if jq -e --arg member "principalSet://iam.googleapis.com/${WIF_RESOURCE}/attribute.repository/${GITHUB_REPO}" \
+      '.bindings[]? | select(.role=="roles/iam.workloadIdentityUser") | .members[]? | select(.==$member)' \
+      "${tmp_json}" >/dev/null; then
+    echo "WorkloadIdentityUser binding already exists on ${sa_email}."
+  else
+    gcloud iam service-accounts add-iam-policy-binding "${sa_email}" \
+      --project="${PROJECT_ID}" \
+      --role="roles/iam.workloadIdentityUser" \
+      --member="principalSet://iam.googleapis.com/${WIF_RESOURCE}/attribute.repository/${GITHUB_REPO}"
+  fi
+  rm -f "${tmp_json}"
+}
+
+ensure_wif_binding "${CI_SA_EMAIL}"
+ensure_wif_binding "${PROD_SA_EMAIL}"
 
 echo "== Output values for GitHub workflows =="
 echo "workload_identity_provider=projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"

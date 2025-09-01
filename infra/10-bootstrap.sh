@@ -126,7 +126,9 @@ ensure_dataset "${INT_DATASET}" "dbt integration dataset"
 info "Ensuring project-level IAM"
 ensure_project_binding roles/bigquery.jobUser "serviceAccount:${CI_SA_EMAIL}"
 ensure_project_binding roles/bigquery.jobUser "serviceAccount:${PROD_SA_EMAIL}"
+# Allow both CI and PROD service accounts to push to Artifact Registry
 ensure_project_binding roles/artifactregistry.writer "serviceAccount:${CI_SA_EMAIL}"
+ensure_project_binding roles/artifactregistry.writer "serviceAccount:${PROD_SA_EMAIL}"
 ensure_project_binding roles/logging.logWriter "serviceAccount:${PROD_SA_EMAIL}"
 
 # Optional: grant BigQuery Job User to a developer Google Group for per-dev work
