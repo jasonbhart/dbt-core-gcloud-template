@@ -23,6 +23,11 @@ PROD_SA_EMAIL="${PROD_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 IMAGE_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}"
 IMAGE_URI="${IMAGE_PATH}:${IMAGE_TAG}"
 
+# Resolve artifacts/docs buckets and docs generation toggle
+ARTIFACTS_BUCKET="${DBT_ARTIFACTS_BUCKET:-${DOCS_BUCKET_NAME:-}}"
+GENERATE_DOCS_FLAG="${GENERATE_DOCS:-true}"
+RUN_FRESHNESS_FLAG="${RUN_FRESHNESS:-true}"
+
 # Ensure required CLIs are present
 command -v gcloud >/dev/null || { echo "gcloud not found"; exit 1; }
 HAVE_DOCKER=1
@@ -81,6 +86,25 @@ ensure_image(){
 ensure_ar_repo
 ensure_image
 
+env_kvs=(
+  "DBT_TARGET=prod"
+  "DBT_GCP_PROJECT_PROD=${PROJECT_ID}"
+  "DBT_BQ_DATASET_PROD=${PROD_DATASET}"
+  "DBT_BQ_LOCATION=${BQ_LOCATION}"
+  "GENERATE_DOCS=${GENERATE_DOCS_FLAG}"
+  "RUN_FRESHNESS=${RUN_FRESHNESS_FLAG}"
+)
+if [[ -n "${ARTIFACTS_BUCKET}" ]]; then
+  env_kvs+=("DBT_ARTIFACTS_BUCKET=${ARTIFACTS_BUCKET}")
+fi
+if [[ -n "${DOCS_BUCKET_NAME:-}" ]]; then
+  env_kvs+=("DOCS_BUCKET_NAME=${DOCS_BUCKET_NAME}")
+fi
+if [[ -n "${FRESHNESS_SELECT:-}" ]]; then
+  env_kvs+=("FRESHNESS_SELECT=${FRESHNESS_SELECT}")
+fi
+ENV_VARS="$(IFS=,; echo "${env_kvs[*]}")"
+
 info "Deploying Cloud Run Job 'dbt-prod-run' with image: ${IMAGE_URI}"
 gcloud run jobs deploy dbt-prod-run \
   --image="${IMAGE_URI}" \
@@ -90,7 +114,9 @@ gcloud run jobs deploy dbt-prod-run \
   --parallelism=1 \
   --max-retries=1 \
   --task-timeout=3600s \
-  --set-env-vars="DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${PROJECT_ID},DBT_BQ_DATASET_PROD=${PROD_DATASET},DBT_BQ_LOCATION=${BQ_LOCATION}" \
+  --set-env-vars="${ENV_VARS}" \
   --project "${PROJECT_ID}"
 
 info "Cloud Run Job deployed."
+
+info "Tip: verify SA/envs with:  gcloud run jobs describe dbt-prod-run --region ${REGION} --project ${PROJECT_ID}"
