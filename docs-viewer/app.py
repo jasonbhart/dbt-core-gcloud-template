@@ -4,12 +4,12 @@ from google.cloud import storage
 
 app = Flask(__name__)
 
-BUCKET = os.environ.get("DOCS_BUCKET_NAME")
+BUCKET = os.environ.get("DBT_DOCS_BUCKET")
 INDEX_OBJECT = os.environ.get("DOCS_INDEX_OBJECT", "index.html")
 CACHE_CONTROL = os.environ.get("DOCS_CACHE_CONTROL", "public, max-age=300")
 
 if not BUCKET:
-    raise RuntimeError("DOCS_BUCKET_NAME env var is required")
+    raise RuntimeError("DBT_DOCS_BUCKET env var is required")
 
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET)

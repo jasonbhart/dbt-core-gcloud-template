@@ -14,7 +14,7 @@ require_env(){
   done
   return 0
 }
-require_env PROJECT_ID REGION AR_REPO DOCS_BUCKET_NAME DOCS_VIEWER_SERVICE DOCS_VIEWER_SA_ID
+require_env PROJECT_ID REGION AR_REPO DBT_DOCS_BUCKET DOCS_VIEWER_SERVICE DOCS_VIEWER_SA_ID
 
 SERVICE="$DOCS_VIEWER_SERVICE"
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${SERVICE}:${IMAGE_TAG:-latest}"
@@ -38,7 +38,7 @@ gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --no-allow-unauthenticated \
   --service-account "$VIEWER_SA_EMAIL" \
-  --set-env-vars "DOCS_BUCKET_NAME=${DOCS_BUCKET_NAME}" \
+  --set-env-vars "DBT_DOCS_BUCKET=${DBT_DOCS_BUCKET}" \
   --min-instances=0 \
   --max-instances=2 \
   --project "$PROJECT_ID"

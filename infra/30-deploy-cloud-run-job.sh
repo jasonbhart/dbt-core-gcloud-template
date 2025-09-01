@@ -24,7 +24,7 @@ IMAGE_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}"
 IMAGE_URI="${IMAGE_PATH}:${IMAGE_TAG}"
 
 # Resolve artifacts/docs buckets and docs generation toggle
-ARTIFACTS_BUCKET="${DBT_ARTIFACTS_BUCKET:-${DOCS_BUCKET_NAME:-}}"
+ARTIFACTS_BUCKET="${DBT_ARTIFACTS_BUCKET:-${DBT_DOCS_BUCKET:-}}"
 GENERATE_DOCS_FLAG="${GENERATE_DOCS:-true}"
 RUN_FRESHNESS_FLAG="${RUN_FRESHNESS:-true}"
 
@@ -93,15 +93,25 @@ env_kvs=(
   "DBT_BQ_LOCATION=${BQ_LOCATION}"
   "GENERATE_DOCS=${GENERATE_DOCS_FLAG}"
   "RUN_FRESHNESS=${RUN_FRESHNESS_FLAG}"
+  "DBT_PROFILES_DIR=/app/profiles"
 )
 if [[ -n "${ARTIFACTS_BUCKET}" ]]; then
   env_kvs+=("DBT_ARTIFACTS_BUCKET=${ARTIFACTS_BUCKET}")
 fi
-if [[ -n "${DOCS_BUCKET_NAME:-}" ]]; then
-  env_kvs+=("DOCS_BUCKET_NAME=${DOCS_BUCKET_NAME}")
+if [[ -n "${DBT_DOCS_BUCKET:-}" ]]; then
+  env_kvs+=("DBT_DOCS_BUCKET=${DBT_DOCS_BUCKET}")
 fi
 if [[ -n "${FRESHNESS_SELECT:-}" ]]; then
   env_kvs+=("FRESHNESS_SELECT=${FRESHNESS_SELECT}")
+fi
+if [[ -n "${DBT_MAX_BYTES_BILLED:-}" ]]; then
+  env_kvs+=("DBT_MAX_BYTES_BILLED=${DBT_MAX_BYTES_BILLED}")
+fi
+if [[ -n "${DBT_BQ_PRIORITY:-}" ]]; then
+  env_kvs+=("DBT_BQ_PRIORITY=${DBT_BQ_PRIORITY}")
+fi
+if [[ -n "${DBT_JOB_EXECUTION_TIMEOUT_SEC:-}" ]]; then
+  env_kvs+=("DBT_JOB_EXECUTION_TIMEOUT_SEC=${DBT_JOB_EXECUTION_TIMEOUT_SEC}")
 fi
 ENV_VARS="$(IFS=,; echo "${env_kvs[*]}")"
 

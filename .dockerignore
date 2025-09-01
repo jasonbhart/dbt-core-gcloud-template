@@ -18,3 +18,9 @@ dbt_packages
 # OS
 .DS_Store
 
+# Not needed in runtime image
+infra/
+.github/
+docs-viewer/
+scripts/
+compare_*.sql

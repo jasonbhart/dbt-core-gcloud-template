@@ -30,7 +30,7 @@ A starter template for **dbt Core on BigQuery** with:
 
 ```
 cp infra/.env.example infra/.env
-$EDITOR infra/.env   # set PROJECT_ID/NUMBER, REGION, BQ_LOCATION, DOCS_BUCKET_NAME, etc.
+$EDITOR infra/.env   # set PROJECT_ID/NUMBER, REGION, BQ_LOCATION, DBT_DOCS_BUCKET, etc.
 ```
 
 2) Bootstrap GCP (APIs, SAs, datasets, bucket, IAM)
@@ -104,7 +104,7 @@ dbt docs generate --static   # single-file docs artifact
 # open target/index.html locally
 ```
 
-> The `--static` flag produces a single HTML doc you can host or share easily (no extra assets). See community write‑ups on hosting dbt docs as a static site. ([Hiflylabs][8], [Metaplane][9])
+> The `--static` flag produces a single HTML doc you can host or share easily (no extra assets). See community write‑ups on hosting dbt docs as a static site. ([Hiflylabs][4], [Metaplane][5])
 
 ---
 
@@ -131,7 +131,7 @@ CI PR summary:
   * A PR comment titled “DBT Data Diff Summary” with a table of row counts and diff counts
   * Set `DIFF_LIMIT` in CI to control how many differing rows are sampled in logs (default 200 in this template)
 
-For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][10])
+For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][6])
 
 ---
 
@@ -178,7 +178,7 @@ Note on INT_DATASET:
 Runtime defaults (Cloud Run Job):
 * Runs `dbt build` then `dbt source freshness` by default in prod (set `RUN_FRESHNESS=false` to disable, or scope with `FRESHNESS_SELECT`).
 * Uploads `manifest.json`, `run_results.json`, and `sources.json` to `gs://$DBT_ARTIFACTS_BUCKET/prod/`.
-* Optionally generates docs (`GENERATE_DOCS=true`) and uploads `target/index.html` to `gs://$DOCS_BUCKET_NAME/index.html` (falls back to `DBT_ARTIFACTS_BUCKET` if `DOCS_BUCKET_NAME` is unset).
+* Optionally generates docs (`GENERATE_DOCS=true`) and uploads `target/index.html` to `gs://$DBT_DOCS_BUCKET/index.html` (falls back to `DBT_ARTIFACTS_BUCKET` if `DBT_DOCS_BUCKET` is unset).
 
 > Cloud Run **Jobs** are built for batch/ETL: they run to completion and can be executed on a schedule by Cloud Scheduler without standing up servers.
 
@@ -227,12 +227,12 @@ Key env toggles (`infra/.env`):
 ```
 
 This sets:
-* `GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`, `GCP_PROJECT_CI`, `DBT_ARTIFACTS_BUCKET`
+* `GCP_WIF_PROVIDER`, `GCP_CI_SA_EMAIL`, `GCP_PROJECT_CI`, `DBT_ARTIFACTS_BUCKET`, `DBT_DOCS_BUCKET`
 * `GCP_PROD_SA_EMAIL`, `GCP_PROJECT_PROD`, `GCP_SCHEDULER_INVOKER_SA`
 
 Notes:
 * The script uses `gh secret set` and values from `infra/.env`. It derives `GCP_WIF_PROVIDER` using the same pool/provider IDs as `20-wif-github.sh` (default `github-pool`/`github-provider`).
-* `DBT_ARTIFACTS_BUCKET` defaults to `DOCS_BUCKET_NAME` unless `DBT_ARTIFACTS_BUCKET` is already exported in your shell.
+* `DBT_ARTIFACTS_BUCKET` defaults to `DBT_DOCS_BUCKET` unless `DBT_ARTIFACTS_BUCKET` is already exported in your shell.
 
 4. After the first image exists (from the release workflow) you can deploy/update the job & Scheduler locally if needed:
 
@@ -379,7 +379,7 @@ This means the operator does not have permission to modify dataset IAM. Options:
 ## Docs & Artifacts
 
 * CI publishes `manifest.json` and optional static docs to your `DBT_ARTIFACTS_BUCKET`.
-* For static docs, we use `dbt docs generate --static` and host a single HTML file if needed (see community examples of static hosting). ([Hiflylabs][8], [Metaplane][9])
+* For static docs, we use `dbt docs generate --static` and host a single HTML file if needed (see community examples of static hosting). ([Hiflylabs][4], [Metaplane][5])
 
 ---
 
@@ -391,7 +391,7 @@ The job can generate a single-file site (`target/index.html`) via `dbt docs gene
   * Make the docs bucket a static website and grant public read.
   * Configure and print URL:
     * `(cd infra && PUBLIC=true ./70-configure-docs-website.sh)`
-    * Then open: `https://storage.googleapis.com/${DOCS_BUCKET_NAME}/index.html`
+    * Then open: `https://storage.googleapis.com/${DBT_DOCS_BUCKET}/index.html`
   * Caution: Public means world-readable. Use only if acceptable.
 
 * Option B — Private access (no public read)
@@ -424,12 +424,12 @@ For private, simple access without IAP or a load balancer, deploy a small Cloud 
 4) Open the Cloud Run service URL printed by the deploy script.
 
 Runtime envs:
-* `DOCS_BUCKET_NAME` (required): bucket that contains `index.html`.
+* `DBT_DOCS_BUCKET` (required): bucket that contains `index.html`.
 * `DOCS_INDEX_OBJECT` (optional): defaults to `index.html`.
 * `DOCS_CACHE_CONTROL` (optional): default `public, max-age=60`.
 
 Automatic upload on prod runs:
-* If the prod job sets `GENERATE_DOCS=true` and `DOCS_BUCKET_NAME=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
+* If the prod job sets `GENERATE_DOCS=true` and `DBT_DOCS_BUCKET=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
 
 ---
 
@@ -447,7 +447,7 @@ Automatic upload on prod runs:
 * Replace placeholder IDs in workflows and `infra/.env`.
 * Decide on the dataset naming convention. This template uses `${PROD_DATASET}_${DBT_USER}` for dev by default.
 * Add models/tests and any packages to `packages.yml`.
-* Consider a formal **data diff** step in CI to compare dev vs prod tables on changed models. ([Datafold][10])
+* Consider a formal **data diff** step in CI to compare dev vs prod tables on changed models. ([Datafold][6])
 
 ---
 
@@ -455,7 +455,7 @@ Automatic upload on prod runs:
 
 * **Per‑developer environments & environment strategy** — Datafold’s guide on dbt development environments. ([Datafold][1])
 * **Slim CI with `state:modified+` & `--defer`** — Implementation notes and examples from melbdataguy and Klaviyo Engineering. ([Medium][2], [Klaviyo Engineering][3])
-* **Data Diff Concept** — Overview of table‑level diffing for dev vs prod validation. ([Datafold][10])
+* **Data Diff Concept** — Overview of table‑level diffing for dev vs prod validation. ([Datafold][6])
 
 ---
 
@@ -464,6 +464,6 @@ Automatic upload on prod runs:
 [1]: https://www.datafold.com/blog/how-to-setup-dbt-development-environments "Optimizing dbt development environments | Datafold"
 [2]: https://melbdataguy.medium.com/implementing-ci-cd-for-dbt-core-with-bigquery-and-github-actions-f930d48a674b "Implementing CI/CD for dbt-core with BigQuery and Github Actions | by melbdataguy | Medium"
 [3]: https://klaviyo.tech/continuous-integration-with-dbt-part-2-47c093a0548e "Continuous Integration with dbt (Part 2) | by Corey Angers | Klaviyo Engineering"
-[8]: https://hiflylabs.com/blog/2023/3/16/dbt-docs-as-a-static-website?utm_source=chatgpt.com "dbt Docs as a Static Website"
-[9]: https://www.metaplane.dev/blog/host-and-share-dbt-docs?utm_source=chatgpt.com "3 ways to host and share dbt docs"
-[10]: https://www.datafold.com/blog/what-the-heck-is-data-diffing?utm_source=chatgpt.com "What the heck is data diffing?!"
+[4]: https://hiflylabs.com/blog/2023/3/16/dbt-docs-as-a-static-website?utm_source=chatgpt.com "dbt Docs as a Static Website"
+[5]: https://www.metaplane.dev/blog/host-and-share-dbt-docs?utm_source=chatgpt.com "3 ways to host and share dbt docs"
+[6]: https://www.datafold.com/blog/what-the-heck-is-data-diffing?utm_source=chatgpt.com "What the heck is data diffing?!"

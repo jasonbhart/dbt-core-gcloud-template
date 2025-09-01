@@ -8,9 +8,12 @@ dbt_core_gcloud:
       dataset: "{{ env_var('DBT_BQ_DATASET', 'analytics_' ~ env_var('DBT_USER', 'local')) }}"
       location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
       threads: 4
-      priority: interactive
-      labels: {service: dbt, env: "{{ target.name }}"}
-      maximum_bytes_billed: "{{ env_var('DBT_MAX_BYTES_BILLED', '') }}"
+      priority: "{{ env_var('DBT_BQ_PRIORITY', 'interactive') }}"
+      labels:
+        service: dbt
+        env: "{{ env_var('DBT_TARGET', 'dev') }}"
+      maximum_bytes_billed: "{{ (env_var('DBT_MAX_BYTES_BILLED', '') | as_number) if env_var('DBT_MAX_BYTES_BILLED', '') else none }}"
+      job_execution_timeout_seconds: "{{ (env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') | as_number) if env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') else none }}"
     ci:
       type: bigquery
       method: service-account
@@ -19,8 +22,12 @@ dbt_core_gcloud:
       dataset: "{{ env_var('DBT_BQ_DATASET') }}"
       location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
       threads: 4
-      priority: interactive
-      labels: {service: dbt, env: "{{ target.name }}"}
+      priority: "{{ env_var('DBT_BQ_PRIORITY', 'interactive') }}"
+      labels:
+        service: dbt
+        env: "{{ env_var('DBT_TARGET', 'ci') }}"
+      maximum_bytes_billed: "{{ (env_var('DBT_MAX_BYTES_BILLED', '') | as_number) if env_var('DBT_MAX_BYTES_BILLED', '') else none }}"
+      job_execution_timeout_seconds: "{{ (env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') | as_number) if env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') else none }}"
     prod:
       type: bigquery
       method: oauth
@@ -28,5 +35,9 @@ dbt_core_gcloud:
       dataset: "{{ env_var('DBT_BQ_DATASET_PROD', 'analytics') }}"
       location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"
       threads: 8
-      priority: interactive
-      labels: {service: dbt, env: "{{ target.name }}"}
+      priority: "{{ env_var('DBT_BQ_PRIORITY', 'interactive') }}"
+      labels:
+        service: dbt
+        env: "{{ env_var('DBT_TARGET', 'prod') }}"
+      maximum_bytes_billed: "{{ (env_var('DBT_MAX_BYTES_BILLED', '') | as_number) if env_var('DBT_MAX_BYTES_BILLED', '') else none }}"
+      job_execution_timeout_seconds: "{{ (env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') | as_number) if env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') else none }}"

@@ -4,9 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./.env
 
-BUCKET="${DBT_ARTIFACTS_BUCKET:-${DOCS_BUCKET_NAME}}"
+BUCKET="${DBT_ARTIFACTS_BUCKET:-${DBT_DOCS_BUCKET}}"
 if [[ -z "$BUCKET" ]]; then
-  echo "Set DBT_ARTIFACTS_BUCKET or DOCS_BUCKET_NAME in infra/.env" >&2
+  echo "Set DBT_ARTIFACTS_BUCKET or DBT_DOCS_BUCKET in infra/.env" >&2
   exit 1
 fi
 
@@ -26,4 +26,3 @@ echo "Applying lifecycle rule (delete objects older than 30 days) to gs://${BUCK
 gcloud storage buckets update "gs://${BUCKET}" --lifecycle-file="$TMP"
 rm -f "$TMP"
 echo "Done."
-

@@ -3,11 +3,31 @@ set -euo pipefail
 
 echo "Starting container at $(date -Is)"
 echo "DBT_TARGET=${DBT_TARGET:-prod}"
+echo "Artifacts bucket: ${DBT_ARTIFACTS_BUCKET:-<unset>}"
+echo "Docs bucket: ${DBT_DOCS_BUCKET:-${DBT_ARTIFACTS_BUCKET:-<unset>}}"
 
-# Ensure profiles dir exists; generate a minimal prod profile if missing
+# Disable ANSI colors so Cloud Logging is readable
+export NO_COLOR=1
+export CLICOLOR=0
+export TERM=dumb
+
+# For prod, force no ANSI colors via CLI flag in addition to envs
+DBT_NO_COLOR_FLAG=""
+if [[ "${DBT_TARGET:-prod}" == "prod" ]]; then
+  DBT_NO_COLOR_FLAG="--no-use-colors"
+fi
+
+# Ensure a usable profiles.yml; fall back to a minimal prod profile if absent
 export DBT_PROFILES_DIR="${DBT_PROFILES_DIR:-/app/profiles}"
-if [[ ! -d "$DBT_PROFILES_DIR" ]]; then
-  echo "Profiles dir not found at $DBT_PROFILES_DIR; creating a minimal prod profile"
+if [[ "${DEBUG:-0}" == "1" ]]; then
+  echo "[debug] Listing /app and ${DBT_PROFILES_DIR}"
+  ls -la /app || true
+  ls -la "$DBT_PROFILES_DIR" || true
+fi
+if [[ -f "$DBT_PROFILES_DIR/profiles.yml" ]]; then
+  echo "Using profiles at $DBT_PROFILES_DIR/profiles.yml"
+else
+  echo "No profiles.yml at $DBT_PROFILES_DIR; creating a minimal prod profile"
   mkdir -p "$DBT_PROFILES_DIR"
   PROJECT_VAL="${DBT_GCP_PROJECT_PROD:-}"
   DATASET_VAL="${DBT_BQ_DATASET_PROD:-analytics}"
@@ -43,20 +63,46 @@ if [[ "${RUN_PRE_HOOK:-false}" == "true" ]]; then
 fi
 
 # Use JSON logs for easier parsing in Cloud Logging
-dbt --log-format json deps
+if [[ "${RUN_DBT_DEBUG:-true}" == "true" ]]; then
+  echo "Running dbt debug --target ${DBT_TARGET}"
+  dbt ${DBT_NO_COLOR_FLAG} debug --target "${DBT_TARGET}" && echo "dbt debug: success"
+fi
+dbt ${DBT_NO_COLOR_FLAG} --log-format json deps
 
 DBT_BUILD_ARGS="${DBT_BUILD_ARGS:-}"
-echo "dbt build --target ${DBT_TARGET} ${DBT_BUILD_ARGS}"
-dbt --log-format json build --target "${DBT_TARGET}" ${DBT_BUILD_ARGS}
+echo "Running dbt build --target ${DBT_TARGET} ${DBT_BUILD_ARGS}"
+dbt ${DBT_NO_COLOR_FLAG} --log-format json build --target "${DBT_TARGET}" ${DBT_BUILD_ARGS}
 
 # Optional source freshness
 if [[ "${RUN_FRESHNESS}" == "true" ]]; then
   echo "Running dbt source freshness"
   if [[ -n "${FRESHNESS_SELECT:-}" ]]; then
-    dbt --log-format json source freshness --select "${FRESHNESS_SELECT}"
+    dbt ${DBT_NO_COLOR_FLAG} --log-format json source freshness --select "${FRESHNESS_SELECT}"
   else
-    dbt --log-format json source freshness
+    dbt ${DBT_NO_COLOR_FLAG} --log-format json source freshness
   fi
+  # Summarize freshness (if sources.json exists)
+  python - << 'PY'
+import json, os
+sp = os.path.join('target','sources.json')
+if os.path.exists(sp):
+    try:
+        with open(sp) as f:
+            doc = json.load(f)
+        statuses = {}
+        for src in doc.get('sources', []):
+            st = (src.get('freshness') or {}).get('status') or src.get('status') or 'unknown'
+            statuses[st] = statuses.get(st, 0) + 1
+        print(json.dumps({"dbt_freshness": {"statuses": statuses}}))
+        parts = ", ".join(f"{k}={v}" for k, v in sorted(statuses.items())) or "no entries"
+        print(f"dbt freshness: {parts}")
+    except Exception as e:
+        print(json.dumps({"dbt_freshness": {"status": "error_reading_sources", "error": str(e)}}))
+        print(f"dbt freshness: failed to read sources.json ({e})")
+else:
+    print(json.dumps({"dbt_freshness": {"status": "missing_sources_json"}}))
+    print("dbt freshness: missing target/sources.json")
+PY
 fi
 
 # Emit a one-line JSON summary for alerting/observability
@@ -68,6 +114,7 @@ try:
         doc = json.load(f)
 except Exception as e:
     print(json.dumps({"dbt_summary": {"status": "missing_run_results", "error": str(e)}}))
+    print(f"dbt summary: missing run_results.json ({e})")
     sys.exit(0)
 
 results = doc.get('results', [])
@@ -87,20 +134,25 @@ summary["failed"] = status_counts.get('error', 0) + status_counts.get('fail', 0)
 summary["successful"] = status_counts.get('success', 0)
 
 print(json.dumps({"dbt_summary": summary}))
+# Human-friendly one-liner
+failed = summary.get("failed", 0)
+succ = summary.get("successful", 0)
+elapsed = summary.get("elapsed")
+print(f"dbt summary: {succ} succeeded, {failed} failed, total={summary['total']}, elapsed={elapsed}s")
 PY
 
 if [[ "${GENERATE_DOCS:-false}" == "true" ]]; then
-  dbt docs generate --static
+  dbt ${DBT_NO_COLOR_FLAG} docs generate --static
   echo "Docs generated at ./target/index.html"
-  # Prefer DOCS_BUCKET_NAME; fall back to DBT_ARTIFACTS_BUCKET if not set
-  EXPORT_DOCS_BUCKET="${DOCS_BUCKET_NAME:-${DBT_ARTIFACTS_BUCKET:-}}"
+  # Prefer DBT_DOCS_BUCKET; fall back to DBT_ARTIFACTS_BUCKET if not set
+  EXPORT_DOCS_BUCKET="${DBT_DOCS_BUCKET:-${DBT_ARTIFACTS_BUCKET:-}}"
   if [[ -n "${EXPORT_DOCS_BUCKET}" ]]; then
-    echo "Uploading docs to gs://${DOCS_BUCKET_NAME}/index.html"
+    echo "Uploading docs to gs://${EXPORT_DOCS_BUCKET}/index.html"
     python - << 'PY'
 import os
 from google.cloud import storage
 
-bucket_name = os.environ.get("DOCS_BUCKET_NAME") or os.environ.get("DBT_ARTIFACTS_BUCKET")
+bucket_name = os.environ.get("DBT_DOCS_BUCKET") or os.environ.get("DBT_ARTIFACTS_BUCKET")
 path = os.path.join("target", "index.html")
 client = storage.Client()
 bucket = client.bucket(bucket_name)

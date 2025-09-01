@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./.env
 
-DOCS_BUCKET="${DOCS_BUCKET_NAME:?Set DOCS_BUCKET_NAME in infra/.env}"
+DOCS_BUCKET="${DBT_DOCS_BUCKET:?Set DBT_DOCS_BUCKET in infra/.env}"
 PUBLIC=${PUBLIC:-false}
 
 echo "Configuring website settings on gs://${DOCS_BUCKET} (index.html)"
@@ -27,4 +27,3 @@ else
 fi
 
 echo "Done."
-

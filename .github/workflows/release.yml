@@ -48,13 +48,13 @@ jobs:
             gcloud run jobs update "$JOB" \
               --image "$IMAGE_URI" \
               --service-account "${{ secrets.GCP_PROD_SA_EMAIL }}" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},DBT_DOCS_BUCKET=${{ secrets.DBT_DOCS_BUCKET }},GENERATE_DOCS=true,DBT_PROFILES_DIR=/app/profiles \
               --region "${{ env.REGION }}"
           else
             gcloud run jobs create "$JOB" \
               --image "$IMAGE_URI" \
               --service-account "${{ secrets.GCP_PROD_SA_EMAIL }}" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},DBT_DOCS_BUCKET=${{ secrets.DBT_DOCS_BUCKET }},GENERATE_DOCS=true,DBT_PROFILES_DIR=/app/profiles \
               --region "${{ env.REGION }}" \
               --memory=2Gi --cpu=1 --max-retries=0
           fi

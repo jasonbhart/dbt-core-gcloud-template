@@ -31,7 +31,7 @@ jobs:
       - name: Python & dbt install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "dbt-core==1.9.0" "dbt-bigquery==1.9.0"
+          python -m pip install "dbt-core==1.10.1" "dbt-bigquery==1.10.1"
 
       - name: Set CI env
         run: |
@@ -45,6 +45,9 @@ jobs:
           echo "MAKE_DATASET_READONLY=true" >> $GITHUB_ENV
           echo "RUN_FRESHNESS=false" >> $GITHUB_ENV
           echo "FRESHNESS_SELECT=source:raw.example" >> $GITHUB_ENV
+          echo "DBT_BQ_PRIORITY=interactive" >> $GITHUB_ENV
+          echo "DBT_MAX_BYTES_BILLED=" >> $GITHUB_ENV
+          echo "DBT_JOB_EXECUTION_TIMEOUT_SEC=" >> $GITHUB_ENV
 
       - name: Create ephemeral dataset
         run: bash scripts/create_bq_dataset.sh

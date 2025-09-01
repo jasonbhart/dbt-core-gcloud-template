@@ -38,7 +38,7 @@ ensure_api_optional(){
 ensure_sa(){ local id="$1" dn="$2"; local email="${id}@${PROJECT_ID}.iam.gserviceaccount.com"; if gcloud iam service-accounts describe "$email" --project "$PROJECT_ID" >/dev/null 2>&1; then info "SA exists: $email"; else info "Creating SA: $email"; gcloud iam service-accounts create "$id" --display-name="$dn" --project "$PROJECT_ID"; fi; }
 ensure_ar_repo(){ if gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then info "AR repo exists: $AR_REPO"; else info "Creating AR repo: $AR_REPO"; gcloud artifacts repositories create "$AR_REPO" --repository-format=docker --location="$REGION" --description="dbt containers" --project "$PROJECT_ID"; fi }
 ensure_bucket(){
-  local name="${DOCS_BUCKET_NAME}"
+  local name="${DBT_DOCS_BUCKET}"
   local uri="gs://${name}"
   # First, try to describe. If it exists and we have access, we're done.
   local err_file
@@ -54,7 +54,7 @@ ensure_bucket(){
   rm -f "$err_file"
   if [[ "$err_msg" == *"HttpError 403"* || "$err_msg" == *"Permission denied"* || "$err_msg" == *"AccessDenied"* || "$err_msg" == *"does not have storage.buckets.get"* ]]; then
     echo "[error] Bucket name '${name}' appears to be in use (403 on describe)." >&2
-    echo "        GCS bucket names are global. Please set DOCS_BUCKET_NAME to a unique value" >&2
+    echo "        GCS bucket names are global. Please set DBT_DOCS_BUCKET to a unique value" >&2
     echo "        (e.g., '${PROJECT_ID}-dbt-docs' or 'dbt-docs-${PROJECT_ID}') and re-run." >&2
     exit 1
   fi
@@ -65,7 +65,7 @@ ensure_bucket(){
   if [[ $rc -ne 0 ]]; then
     if [[ "$create_out" == *"409"* || "$create_out" == *"already exists"* || "$create_out" == *"not available"* || "$create_out" == *"already owns this bucket"* ]]; then
       echo "[error] Bucket name '${name}' is already taken globally." >&2
-      echo "        Please choose a unique DOCS_BUCKET_NAME (e.g., '${PROJECT_ID}-dbt-docs')." >&2
+      echo "        Please choose a unique DBT_DOCS_BUCKET (e.g., '${PROJECT_ID}-dbt-docs')." >&2
     else
       echo "[error] Failed to create bucket ${uri}:" >&2
       echo "        ${create_out}" >&2
@@ -208,7 +208,7 @@ ensure_bucket_binding () {
   rm -f "${tmp}" "${tmp2}"
 }
 
-require_env PROJECT_ID PROJECT_NUMBER REGION BQ_LOCATION AR_REPO PROD_DATASET DOCS_BUCKET_NAME CI_SA_ID PROD_SA_ID SCHEDULER_SA_ID
+require_env PROJECT_ID PROJECT_NUMBER REGION BQ_LOCATION AR_REPO PROD_DATASET DBT_DOCS_BUCKET CI_SA_ID PROD_SA_ID SCHEDULER_SA_ID
 
 CI_SA_EMAIL="${CI_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 PROD_SA_EMAIL="${PROD_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -453,10 +453,10 @@ else
 fi
 
 info "Ensuring bucket IAM for docs"
-ensure_bucket_binding "${DOCS_BUCKET_NAME}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
+ensure_bucket_binding "${DBT_DOCS_BUCKET}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
 
-# If a separate artifacts bucket is defined and differs from DOCS_BUCKET_NAME, grant IAM there too
-if [[ -n "${DBT_ARTIFACTS_BUCKET:-}" && "${DBT_ARTIFACTS_BUCKET}" != "${DOCS_BUCKET_NAME}" ]]; then
+# If a separate artifacts bucket is defined and differs from DBT_DOCS_BUCKET, grant IAM there too
+if [[ -n "${DBT_ARTIFACTS_BUCKET:-}" && "${DBT_ARTIFACTS_BUCKET}" != "${DBT_DOCS_BUCKET}" ]]; then
   info "Ensuring bucket IAM for artifacts bucket (${DBT_ARTIFACTS_BUCKET})"
   ensure_bucket_binding "${DBT_ARTIFACTS_BUCKET}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
 fi
@@ -464,8 +464,8 @@ fi
 # Allow docs viewer SA to read docs (if defined)
 if [[ -n "${DOCS_VIEWER_SA_ID:-}" ]]; then
   viewer_email="${DOCS_VIEWER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
-  if ! gcloud storage buckets get-iam-policy "gs://${DOCS_BUCKET_NAME}" --format=json --project "${PROJECT_ID}" | jq -e --arg m "serviceAccount:${viewer_email}" '.bindings[]? | select(.role=="roles/storage.objectViewer") | .members[]? | select(.==$m)' >/dev/null; then
-    gcloud storage buckets add-iam-policy-binding "gs://${DOCS_BUCKET_NAME}" \
+  if ! gcloud storage buckets get-iam-policy "gs://${DBT_DOCS_BUCKET}" --format=json --project "${PROJECT_ID}" | jq -e --arg m "serviceAccount:${viewer_email}" '.bindings[]? | select(.role=="roles/storage.objectViewer") | .members[]? | select(.==$m)' >/dev/null; then
+    gcloud storage buckets add-iam-policy-binding "gs://${DBT_DOCS_BUCKET}" \
       --member="serviceAccount:${viewer_email}" \
       --role="roles/storage.objectViewer" \
       --project "${PROJECT_ID}" --quiet
