@@ -41,6 +41,10 @@ jobs:
           echo "DBT_BQ_DATASET=ci_pr_${{ github.event.number }}_${{ github.run_id }}" >> $GITHUB_ENV
           echo "DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }}" >> $GITHUB_ENV
           echo "DIFF_LIMIT=200" >> $GITHUB_ENV
+          echo "CI_SA_EMAIL=${{ secrets.GCP_CI_SA_EMAIL }}" >> $GITHUB_ENV
+          echo "MAKE_DATASET_READONLY=true" >> $GITHUB_ENV
+          echo "RUN_FRESHNESS=false" >> $GITHUB_ENV
+          echo "FRESHNESS_SELECT=source:raw.example" >> $GITHUB_ENV
 
       - name: Create ephemeral dataset
         run: bash scripts/create_bq_dataset.sh
@@ -48,8 +52,14 @@ jobs:
       - name: Slim CI build (with defer if prod manifest exists)
         run: bash scripts/ci_build.sh
 
-      - name: Source freshness (lightweight)
-        run: dbt source freshness --select source:raw.example || true
+      - name: Source freshness (optional)
+        if: env.RUN_FRESHNESS == 'true'
+        run: |
+          if [[ -n "${FRESHNESS_SELECT}" ]]; then
+            dbt source freshness --select "${FRESHNESS_SELECT}" || true
+          else
+            dbt source freshness || true
+          fi
 
       - name: Generate docs (optional preview)
         run: dbt docs generate --static
