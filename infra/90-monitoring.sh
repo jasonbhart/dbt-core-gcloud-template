@@ -6,7 +6,7 @@ source ./.env
 
 PROJECT_ID=${PROJECT_ID:?}
 REGION=${REGION:?}
-JOB_NAME=${JOB_NAME:-dbt-prod}
+JOB_NAME=${JOB_NAME:-dbt-prod-run}
 SCHED_JOB_NAME=${SCHED_JOB_NAME:-dbt-prod-nightly}
 CHANNELS=${NOTIFICATION_CHANNELS:-}
 
