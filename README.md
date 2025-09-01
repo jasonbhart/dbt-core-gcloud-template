@@ -24,6 +24,42 @@ A starter template for **dbt Core on BigQuery** with:
 * GCP access to create IAM, BigQuery datasets, Artifact Registry repos, Cloud Run Jobs, and Cloud Scheduler jobs.
 * APIs: BigQuery, Artifact Registry, Cloud Run, Cloud Scheduler, IAM (enabled by `infra/10-bootstrap.sh` if not already).
 
+## Start Here — New Deployment Quickstart
+
+1) Configure infra env
+
+```
+cp infra/.env.example infra/.env
+$EDITOR infra/.env   # set PROJECT_ID/NUMBER, REGION, BQ_LOCATION, DOCS_BUCKET_NAME, etc.
+```
+
+2) Bootstrap GCP (APIs, SAs, datasets, bucket, IAM)
+
+```
+(cd infra && ./10-bootstrap.sh)
+```
+
+3) Configure GitHub OIDC (WIF) and secrets
+
+```
+(cd infra && ./20-wif-github.sh)
+(cd infra && ./60-set-github-secrets.sh)   # optional helper to set repo secrets
+```
+
+4) Deploy prod job (or push to main to let CI/CD do it)
+
+```
+(cd infra && ./30-deploy-cloud-run-job.sh)
+(cd infra && ./40-schedule-prod-job.sh)
+```
+
+Defaults worth knowing:
+* CI datasets are ephemeral and ACL‑hardened so only the CI SA is WRITER; others are read‑only.
+* Prod job runs `dbt build` then `dbt source freshness` by default and uploads `manifest.json`, `run_results.json`, and `sources.json` to your artifacts bucket.
+* Dataset IAM/ACLs can be managed by the repo (default) or skipped via `MANAGE_DATASET_IAM=false`.
+
+See “Infra Bootstrap (one‑time per GCP project)” for details and toggles.
+
 ---
 
 ## Repo Layout
@@ -111,7 +147,7 @@ For deeper diffs, consider a **data‑diff** approach (row‑level compare) to v
 **Flow**
 
 1. OIDC auth in GitHub Actions (no JSON keys). Ensure `permissions: id-token: write`.
-2. Create ephemeral BigQuery dataset `ci_pr_<PR>_<runid>` (cleaned up at end). The bootstrap grants the CI service account `roles/bigquery.user` so it can create datasets.
+2. Create ephemeral BigQuery dataset `ci_pr_<PR>_<runid>` (cleaned up at end). The bootstrap grants the CI service account `roles/bigquery.user` so it can create datasets. The workflow then hardens ACLs so only the CI service account is `WRITER` on the dataset (removes `projectWriters`); everyone else is read‑only.
 3. **Slim CI**: `dbt build --select state:modified+ --defer --state <prod_artifacts>` so only changed nodes + dependents run, resolving upstream refs to prod objects. ([Medium][2], [Klaviyo Engineering][3])
 4. Generate docs and upload to `gs://$DBT_ARTIFACTS_BUCKET/ci/...`.
 5. Always drop the ephemeral dataset.
@@ -139,6 +175,11 @@ Note on INT_DATASET:
 3. Create/update **Cloud Scheduler** trigger on the job (“Triggers” tab in the Job UI), or via CLI, to run on a cron schedule.
 4. (Optional) Execute once after deploy to refresh prod artifacts.
 
+Runtime defaults (Cloud Run Job):
+* Runs `dbt build` then `dbt source freshness` by default in prod (set `RUN_FRESHNESS=false` to disable, or scope with `FRESHNESS_SELECT`).
+* Uploads `manifest.json`, `run_results.json`, and `sources.json` to `gs://$DBT_ARTIFACTS_BUCKET/prod/`.
+* Optionally generates docs (`GENERATE_DOCS=true`) and uploads `target/index.html` to `gs://$DOCS_BUCKET_NAME/index.html` (falls back to `DBT_ARTIFACTS_BUCKET` if `DOCS_BUCKET_NAME` is unset).
+
 > Cloud Run **Jobs** are built for batch/ETL: they run to completion and can be executed on a schedule by Cloud Scheduler without standing up servers.
 
 ---
@@ -161,6 +202,12 @@ $EDITOR infra/.env
 ```
 
 * Artifact Registry repo creation uses `gcloud artifacts repositories create ...`.
+
+Key env toggles (`infra/.env`):
+* `INT_DATASET` (optional): create a standing non‑prod dataset; leave blank for ephemeral‑only CI.
+* `MANAGE_DATASET_IAM` (default true): manage dataset grants; set false if dataset IAM/ACLs are centrally managed.
+* `PROD_HARDEN_ACL` (default true): ensure only the prod runner SA can write to the prod dataset; everyone else is query‑only.
+* `INT_HARDEN_ACL` (default true): ensure only the CI SA can write to the standing integration dataset.
 
 3. Configure GitHub **OIDC / Workload Identity Federation** (no keys):
 
