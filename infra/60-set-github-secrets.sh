@@ -51,6 +51,14 @@ secrets=(
   [GCP_PROD_SA_EMAIL]="$PROD_SA_EMAIL"
   [GCP_PROJECT_PROD]="$PROD_PROJECT_ID"
   [GCP_SCHEDULER_INVOKER_SA]="$SCHED_SA_EMAIL"
+  # Deployment coordinates for workflows
+  [GCP_REGION]="$REGION"
+  [GCP_SCHED_REGION]="${SCHED_REGION:-$REGION}"
+  [AR_REPO]="$AR_REPO"
+  [IMAGE_NAME]="$IMAGE_NAME"
+  # dbt runtime envs
+  [PROD_DATASET]="$PROD_DATASET"
+  [BQ_LOCATION]="$BQ_LOCATION"
 )
 
 for key in "${!secrets[@]}"; do

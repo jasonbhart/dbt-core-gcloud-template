@@ -6,10 +6,10 @@ on:
     paths-ignore: [ "README.md" ]
 
 env:
-  REGION: us-central1
-  SCHED_REGION: us-central1
-  REPO: dbt-artifacts
-  IMAGE_NAME: dbt-runner
+  REGION: ${{ secrets.GCP_REGION }}
+  SCHED_REGION: ${{ secrets.GCP_SCHED_REGION }}
+  REPO: ${{ secrets.AR_REPO }}
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
   DBT_PROFILES_DIR: /app/profiles
 
 jobs:
@@ -42,25 +42,27 @@ jobs:
 
       - name: Create/Update Cloud Run Job
         run: |
-          JOB=dbt-prod
+          JOB=dbt-prod-run
           set -e
           if gcloud run jobs describe "$JOB" --region "${{ env.REGION }}" >/dev/null 2>&1; then
             gcloud run jobs update "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --service-account "${{ secrets.GCP_PROD_SA_EMAIL }}" \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}"
           else
             gcloud run jobs create "$JOB" \
               --image "$IMAGE_URI" \
-              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=analytics,DBT_BQ_LOCATION=US,DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
+              --service-account "${{ secrets.GCP_PROD_SA_EMAIL }}" \
+              --set-env-vars=DBT_TARGET=prod,DBT_GCP_PROJECT_PROD=${{ secrets.GCP_PROJECT_PROD }},DBT_BQ_DATASET_PROD=${{ secrets.PROD_DATASET }},DBT_BQ_LOCATION=${{ secrets.BQ_LOCATION }},DBT_ARTIFACTS_BUCKET=${{ secrets.DBT_ARTIFACTS_BUCKET }},GENERATE_DOCS=true \
               --region "${{ env.REGION }}" \
               --memory=2Gi --cpu=1 --max-retries=0
           fi
 
       - name: Schedule the job (Cloud Scheduler)
         run: |
-          SCHED=dbt-prod-schedule
-          EXEC_URI="https://run.googleapis.com/v2/projects/${{ secrets.GCP_PROJECT_PROD }}/locations/${{ env.REGION }}/jobs/dbt-prod:run"
+          SCHED=dbt-prod-nightly
+          EXEC_URI="https://run.googleapis.com/v2/projects/${{ secrets.GCP_PROJECT_PROD }}/locations/${{ env.REGION }}/jobs/dbt-prod-run:run"
           if ! gcloud scheduler jobs describe "$SCHED" --location "${{ env.SCHED_REGION }}" >/dev/null 2>&1; then
             gcloud scheduler jobs create http "$SCHED" \
               --location "${{ env.SCHED_REGION }}" \
@@ -79,5 +81,5 @@ jobs:
 
       - name: Run prod job now and ensure artifacts pushed
         run: |
-          gcloud run jobs execute dbt-prod --region "${{ env.REGION }}" --wait || true
+          gcloud run jobs execute dbt-prod-run --region "${{ env.REGION }}" --wait || true
           # The container uploads manifest/run_results/docs to gs://${{ secrets.DBT_ARTIFACTS_BUCKET }}/prod/

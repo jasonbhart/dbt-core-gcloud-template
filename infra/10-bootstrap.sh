@@ -131,6 +131,56 @@ ensure_project_binding roles/artifactregistry.writer "serviceAccount:${CI_SA_EMA
 ensure_project_binding roles/artifactregistry.writer "serviceAccount:${PROD_SA_EMAIL}"
 ensure_project_binding roles/logging.logWriter "serviceAccount:${PROD_SA_EMAIL}"
 
+# Allow the PROD SA (used by GitHub Actions) to manage Cloud Run Jobs and Cloud Scheduler jobs
+ensure_project_binding roles/run.developer "serviceAccount:${PROD_SA_EMAIL}"
+# Cloud Scheduler has only admin/viewer predefined roles; admin needed to create/update jobs
+ensure_project_binding roles/cloudscheduler.admin "serviceAccount:${PROD_SA_EMAIL}"
+
+# Permit the deployer identity to set the runtime service account when deploying the job
+# (required by Cloud Run to use --service-account). Here we allow the PROD SA to act as itself.
+TMP_SA_POLICY="$(mktemp)"
+gcloud iam service-accounts get-iam-policy "${PROD_SA_EMAIL}" --format=json >"${TMP_SA_POLICY}"
+if ! jq -e --arg m "serviceAccount:${PROD_SA_EMAIL}" '.bindings[]? | select(.role=="roles/iam.serviceAccountUser") | .members[]? | select(.==$m)' "${TMP_SA_POLICY}" >/dev/null; then
+  info "Granting roles/iam.serviceAccountUser on ${PROD_SA_EMAIL} to itself (for --service-account)"
+  gcloud iam service-accounts add-iam-policy-binding "${PROD_SA_EMAIL}" \
+    --member "serviceAccount:${PROD_SA_EMAIL}" \
+    --role roles/iam.serviceAccountUser \
+    --project "${PROJECT_ID}" >/dev/null
+else
+  info "Service account user binding already present on ${PROD_SA_EMAIL}"
+fi
+rm -f "${TMP_SA_POLICY}"
+
+# Allow Cloud Scheduler service agent to mint tokens for the Scheduler SA when invoking the job
+SCHEDULER_SA_POLICY_TMP="$(mktemp)"
+gcloud iam service-accounts get-iam-policy "${SCHED_SA_EMAIL}" --format=json >"${SCHEDULER_SA_POLICY_TMP}"
+SCHED_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+if ! jq -e --arg m "serviceAccount:${SCHED_AGENT}" '.bindings[]? | select(.role=="roles/iam.serviceAccountTokenCreator") | .members[]? | select(.==$m)' "${SCHEDULER_SA_POLICY_TMP}" >/dev/null; then
+  info "Granting roles/iam.serviceAccountTokenCreator on ${SCHED_SA_EMAIL} to ${SCHED_AGENT} (Cloud Scheduler service agent)"
+  gcloud iam service-accounts add-iam-policy-binding "${SCHED_SA_EMAIL}" \
+    --member "serviceAccount:${SCHED_AGENT}" \
+    --role roles/iam.serviceAccountTokenCreator \
+    --project "${PROJECT_ID}" >/dev/null
+else
+  info "Scheduler service agent already has TokenCreator on ${SCHED_SA_EMAIL}"
+fi
+rm -f "${SCHEDULER_SA_POLICY_TMP}"
+
+# Allow the deployer (PROD SA) to configure Scheduler with --oauth-service-account-email
+# This requires iam.serviceAccounts.actAs on the Scheduler SA
+SCHEDULER_SA_POLICY_TMP2="$(mktemp)"
+gcloud iam service-accounts get-iam-policy "${SCHED_SA_EMAIL}" --format=json >"${SCHEDULER_SA_POLICY_TMP2}"
+if ! jq -e --arg m "serviceAccount:${PROD_SA_EMAIL}" '.bindings[]? | select(.role=="roles/iam.serviceAccountUser") | .members[]? | select(.==$m)' "${SCHEDULER_SA_POLICY_TMP2}" >/dev/null; then
+  info "Granting roles/iam.serviceAccountUser on ${SCHED_SA_EMAIL} to ${PROD_SA_EMAIL} (for Scheduler OAuth config)"
+  gcloud iam service-accounts add-iam-policy-binding "${SCHED_SA_EMAIL}" \
+    --member "serviceAccount:${PROD_SA_EMAIL}" \
+    --role roles/iam.serviceAccountUser \
+    --project "${PROJECT_ID}" >/dev/null
+else
+  info "Deployer already has Service Account User on ${SCHED_SA_EMAIL}"
+fi
+rm -f "${SCHEDULER_SA_POLICY_TMP2}"
+
 # Optional: grant BigQuery Job User to a developer Google Group for per-dev work
 if [[ -n "${DEV_GROUP_EMAIL:-}" ]]; then
   info "Ensuring project-level IAM for dev group: roles/bigquery.jobUser -> group:${DEV_GROUP_EMAIL}"
