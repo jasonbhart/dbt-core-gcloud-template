@@ -2,7 +2,7 @@
 
 A starter template for **dbt Core on BigQuery** with:
 
-* Per‑developer isolated datasets (dev), **integration (CI)**, and **production**
+* Per‑developer isolated datasets (dev), **integration (optional INT_DATASET)**, and **production**
 * **GitHub Actions** for CI (Slim CI + `--defer`) and containerized CD
 * **Cloud Run Jobs** orchestrated by **Cloud Scheduler** for prod
 * Optional **Python pre/post hooks** and **dbt docs** artifacts (static)
@@ -111,12 +111,15 @@ For deeper diffs, consider a **data‑diff** approach (row‑level compare) to v
 **Flow**
 
 1. OIDC auth in GitHub Actions (no JSON keys). Ensure `permissions: id-token: write`.
-2. Create ephemeral BigQuery dataset `ci_pr_<PR>_<runid>` (cleaned up at end).
+2. Create ephemeral BigQuery dataset `ci_pr_<PR>_<runid>` (cleaned up at end). The bootstrap grants the CI service account `roles/bigquery.user` so it can create datasets.
 3. **Slim CI**: `dbt build --select state:modified+ --defer --state <prod_artifacts>` so only changed nodes + dependents run, resolving upstream refs to prod objects. ([Medium][2], [Klaviyo Engineering][3])
 4. Generate docs and upload to `gs://$DBT_ARTIFACTS_BUCKET/ci/...`.
 5. Always drop the ephemeral dataset.
 
 > These Slim CI patterns (state selector + deferral) are documented in community engineering posts and case studies. ([Klaviyo Engineering][3], [Medium][2])
+
+Note on INT_DATASET:
+* INT_DATASET is optional. If set, the bootstrap script will create a standing non‑prod dataset and grant the CI SA editor on it. If left empty, no integration dataset is created or bound; CI continues to use ephemeral per‑run datasets only. If your CI runs in a different GCP project than the one you bootstrapped, ensure `roles/bigquery.user` is granted to the CI SA in that CI project.
 
 ---
 
@@ -300,6 +303,8 @@ The person/service running scripts in `infra/` needs elevated, temporary permiss
 Notes:
 * These are for the operator only. Runtime SAs (CI and Prod) use the minimal roles listed above in “IAM & Security”.
 * Many orgs grant Project Owner to the bootstrapper, run `infra/10-bootstrap.sh` and `infra/20-wif-github.sh`, then revoke and keep least‑privilege going forward.
+* Important: Project Owner does not implicitly include BigQuery dataset admin. To change dataset IAM (e.g., grant the CI/Prod SAs reader/editor on `analytics`), the operator needs `roles/bigquery.admin` (or dataset‑level ownership). If missing, `infra/10-bootstrap.sh` will warn with `bigquery.datasets.setIamPolicy` and continue.
+* You can disable dataset IAM management entirely by setting `MANAGE_DATASET_IAM=false` in `infra/.env`. The bootstrap will then skip those bindings and avoid warnings in locked‑down environments.
 
 Check your current permissions:
 
@@ -308,6 +313,19 @@ Check your current permissions:
 ```
 
 The script compares your active gcloud principal against the required project roles and flags any missing ones. It also suggests `serviceAccountUser` bindings on specific SAs if needed. It checks direct bindings; if you receive roles via a group, it may not detect that.
+
+### Troubleshooting: dataset IAM warnings in bootstrap
+
+If you see lines like:
+
+```
+[warn] Failed to set IAM on dataset dm-website-426721:analytics. Check your permissions (need bigquery.datasets.setIamPolicy). Continuing.
+```
+
+This means the operator does not have permission to modify dataset IAM. Options:
+* Grant the operator `roles/bigquery.admin` temporarily and re‑run `infra/10-bootstrap.sh`.
+* Have a privileged admin grant the CI SA `roles/bigquery.dataViewer` on prod datasets and the Prod SA `roles/bigquery.dataEditor`.
+* Ignore the warnings if dataset IAM is managed centrally; the rest of bootstrap (APIs, SAs, bucket IAM, etc.) proceeds.
 
 ---
 
