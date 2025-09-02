@@ -40,6 +40,7 @@ if gcloud scheduler jobs describe dbt-prod-nightly --location "${REGION}" --proj
     --http-method=POST \
     --uri="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/dbt-prod-run:run" \
     --oauth-service-account-email "${SCHED_SA_EMAIL}" \
+    --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
     --project "${PROJECT_ID}"
 else
   gcloud scheduler jobs create http dbt-prod-nightly \
@@ -48,6 +49,7 @@ else
     --http-method=POST \
     --uri="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/dbt-prod-run:run" \
     --oauth-service-account-email "${SCHED_SA_EMAIL}" \
+    --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
     --project "${PROJECT_ID}"
 fi
 
