@@ -20,7 +20,7 @@ A starter template for **dbt Core on BigQuery** with:
 * Google Cloud SDK installed (provides `gcloud`, `bq`, and `gcloud storage`).
 * Docker (to build/push the dbt image).
 * jq (JSON CLI used by infra scripts).
-* GitHub CLI (optional; required if you want to auto-set GitHub Actions secrets via `infra/60-set-github-secrets.sh`).
+* GitHub CLI (optional; required if you want to auto-set GitHub Actions secrets via `infra/25-set-github-secrets.sh`).
 * GCP access to create IAM, BigQuery datasets, Artifact Registry repos, Cloud Run Jobs, and Cloud Scheduler jobs.
 * APIs: BigQuery, Artifact Registry, Cloud Run, Cloud Scheduler, IAM (enabled by `infra/10-bootstrap.sh` if not already).
 
@@ -39,11 +39,14 @@ $EDITOR infra/.env   # set PROJECT_ID/NUMBER, REGION, BQ_LOCATION, DBT_DOCS_BUCK
 (cd infra && ./10-bootstrap.sh)
 ```
 
+For details on what this script creates and all available toggles, see
+[Infra Bootstrap (one‑time per GCP project)](#infra-bootstrap-one-time-per-gcp-project).
+
 3) Configure GitHub OIDC (WIF) and secrets
 
 ```
 (cd infra && ./20-wif-github.sh)
-(cd infra && ./60-set-github-secrets.sh)   # optional helper to set repo secrets
+(cd infra && ./25-set-github-secrets.sh)   # optional helper to set repo secrets
 ```
 
 4) Deploy prod job (or push to main to let CI/CD do it)
@@ -58,7 +61,30 @@ Defaults worth knowing:
 * Prod job runs `dbt build` then `dbt source freshness` by default and uploads `manifest.json`, `run_results.json`, and `sources.json` to your artifacts bucket.
 * Dataset IAM/ACLs can be managed by the repo (default) or skipped via `MANAGE_DATASET_IAM=false`.
 
-See “Infra Bootstrap (one‑time per GCP project)” for details and toggles.
+See [Infra Bootstrap (one‑time per GCP project)](#infra-bootstrap-one-time-per-gcp-project) for details and toggles.
+
+---
+
+## Script Index & Typical Order
+
+Core flow (typical first run):
+* [infra/10-bootstrap.sh](#infra-bootstrap-one-time-per-gcp-project) — Enable APIs; create SAs, Artifact Registry, datasets, docs bucket; set IAM.
+* [infra/20-wif-github.sh](#infra-bootstrap-one-time-per-gcp-project) — Configure GitHub OIDC / Workload Identity Federation.
+* [infra/25-set-github-secrets.sh](#infra-bootstrap-one-time-per-gcp-project) — Optional: set GitHub Actions repo secrets via gh.
+* [infra/30-deploy-cloud-run-job.sh](#release-main-prod-container) — Create/update the Cloud Run Job (prod runner).
+* [infra/40-schedule-prod-job.sh](#release-main-prod-container) — Create/update Cloud Scheduler trigger for the job.
+
+Optional helpers (as needed):
+* [infra/50-ensure-dev-datasets.sh](#developer-onboarding) — Ensure per‑developer datasets + IAM (reads infra/devs.txt; supports --grant-job-user).
+* [infra/70-configure-docs-website.sh](#serve-dbt-docs-http) — Configure docs bucket website index; set PUBLIC=true for public read.
+* [infra/80-deploy-docs-viewer.sh](#docs-viewer-cloud-run-iam-only) — Deploy private Cloud Run docs viewer service (reads index.html from GCS).
+* [infra/81-grant-docs-viewer-access.sh](#docs-viewer-cloud-run-iam-only) — Grant run.invoker to users/groups for the docs viewer.
+* [infra/85-ensure-notification-channels.sh](#monitoring) — Create/reuse Monitoring email channels; writes NOTIFICATION_CHANNELS.
+* [infra/90-monitoring.sh](#monitoring) — Ensure alerting policies for Run Job, Scheduler, and BigQuery errors.
+* [infra/15-artifacts-lifecycle.sh](#docs--artifacts) — Set GCS lifecycle on artifacts/docs bucket (e.g., delete objects >30 days).
+* [infra/check-operator-iam.sh](#operator-iam-to-run-infra-scripts) — Check current operator’s project roles; helpful before running bootstrap.
+
+Tip: 25/50/70/80/81/85/90/15 are optional and can be run any time after 10 (and when their prerequisites exist).
 
 ---
 
@@ -221,9 +247,9 @@ Key env toggles (`infra/.env`):
 3a. Set GitHub Actions secrets automatically (optional helper):
 
 ```
-(cd infra && ./60-set-github-secrets.sh)           # uses GITHUB_REPO from infra/.env
+(cd infra && ./25-set-github-secrets.sh)           # uses GITHUB_REPO from infra/.env
 # or pass repo explicitly
-(cd infra && ./60-set-github-secrets.sh your-org/your-repo)
+(cd infra && ./25-set-github-secrets.sh your-org/your-repo)
 ```
 
 This sets:
@@ -412,13 +438,13 @@ For private, simple access without IAP or a load balancer, deploy a small Cloud 
 2) Build and deploy the service:
 
 ```
-(cd infra && ./80-deploy-dbt-docs-viewer.sh)
+(cd infra && ./80-deploy-docs-viewer.sh)
 ```
 
 3) Grant users/groups access to view (run.invoker):
 
 ```
-(cd infra && ./81-grant-dbt-docs-viewer-access.sh group:[email protected])
+(cd infra && ./81-grant-docs-viewer-access.sh group:[email protected])
 ```
 
 4) Open the Cloud Run service URL printed by the deploy script.
@@ -432,6 +458,27 @@ Automatic upload on prod runs:
 * If the prod job sets `GENERATE_DOCS=true` and `DBT_DOCS_BUCKET=<bucket>`, the dbt container uploads `target/index.html` to `gs://<bucket>/index.html` automatically after generation.
 
 ---
+
+## Monitoring
+
+Set up basic monitoring for failures across the stack using log‑based metrics and alerting policies.
+
+* Metrics: `cloud_run_job_errors`, `cloud_run_job_failures` (text match), `cloud_scheduler_job_errors`, `bigquery_job_errors`.
+* Policies: alert when count > 0 over 5 minutes; uses `gcloud beta/alpha monitoring policies`.
+* Channels: optional but recommended via `infra/85-ensure-notification-channels.sh` (sets `NOTIFICATION_CHANNELS`).
+
+Usage
+* Create channels (optional):
+  * `(cd infra && ./85-ensure-notification-channels.sh --email [email protected],[email protected])`
+  * The script updates `infra/.env` and can export a helper file `.notification_channels.env`.
+* Create metrics + policies:
+  * `(cd infra && ./90-monitoring.sh)`
+* Override names/regions (optional):
+  * `JOB_NAME=dbt-prod-run SCHED_JOB_NAME=dbt-prod-nightly REGION=us-central1 SCHED_REGION=us-central1 (cd infra && ./90-monitoring.sh)`
+
+Notes
+* Requires an up‑to‑date `gcloud` with Monitoring alpha/beta commands.
+* Safe to re‑run; existing metrics/policies are left in place.
 
 ## Operational Notes
 
@@ -456,10 +503,6 @@ Automatic upload on prod runs:
 * **Per‑developer environments & environment strategy** — Datafold’s guide on dbt development environments. ([Datafold][1])
 * **Slim CI with `state:modified+` & `--defer`** — Implementation notes and examples from melbdataguy and Klaviyo Engineering. ([Medium][2], [Klaviyo Engineering][3])
 * **Data Diff Concept** — Overview of table‑level diffing for dev vs prod validation. ([Datafold][6])
-
----
-
-### References
 
 [1]: https://www.datafold.com/blog/how-to-setup-dbt-development-environments "Optimizing dbt development environments | Datafold"
 [2]: https://melbdataguy.medium.com/implementing-ci-cd-for-dbt-core-with-bigquery-and-github-actions-f930d48a674b "Implementing CI/CD for dbt-core with BigQuery and Github Actions | by melbdataguy | Medium"
