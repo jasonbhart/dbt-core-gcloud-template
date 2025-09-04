@@ -1,7 +1,8 @@
 {{ config(
   materialized='table',
   partition_by={"field": "created_at_ts", "data_type": "timestamp"},
-  cluster_by=['id']
+  cluster_by=['id'],
+  enabled=false
 ) }}
 
 select

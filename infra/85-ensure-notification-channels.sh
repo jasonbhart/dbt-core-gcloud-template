@@ -86,11 +86,25 @@ fi
 
 # Fetch existing channels (JSON)
 existing_json=$( $CH_CMD list --format=json --project "$PROJECT_ID" 2>/dev/null || echo '[]' )
+if [[ "$existing_json" == "[]" ]]; then
+  # Check if the API call failed vs. no channels exist
+  if ! $CH_CMD list --format=json --project "$PROJECT_ID" >/dev/null 2>&1; then
+    echo "[warn] Could not list existing notification channels. This may indicate API issues." >&2
+    echo "       Proceeding anyway; will attempt to create channels." >&2
+  fi
+fi
 
 channel_names=()
 for addr in "${emails[@]}"; do
   addr_trim=$(echo "$addr" | awk '{$1=$1;print}')
   [[ -z "$addr_trim" ]] && continue
+
+  # Basic email validation
+  if [[ ! "$addr_trim" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+    echo "[warn] Skipping invalid email address: $addr_trim" >&2
+    continue
+  fi
+
   # Try to find existing email channel
   existing_name=$(printf '%s' "$existing_json" | jq -r --arg a "$addr_trim" '.[] | select(.type=="email" and .labels.email_address==$a) | .name' | head -n1)
   if [[ -n "$existing_name" ]]; then
@@ -105,9 +119,10 @@ for addr in "${emails[@]}"; do
     --display-name="dbt Alerts: ${addr_trim}" \
     --channel-labels="email_address=${addr_trim}" \
     --project "$PROJECT_ID" \
-    --format='value(name)' )
+    --format='value(name)' 2>/dev/null )
   if [[ -z "$new_name" ]]; then
     echo "[error] Failed to create notification channel for $addr_trim" >&2
+    echo "        Check that the Monitoring API is enabled and you have monitoring.notificationChannels.create permission" >&2
     exit 1
   fi
   channel_names+=("$new_name")

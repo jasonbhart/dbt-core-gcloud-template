@@ -28,8 +28,20 @@ if [[ ! -d "$APP_DIR" ]]; then
   echo "Set DOCS_VIEWER_DIR to the app path, or place the app in ./docs-viewer" >&2
   exit 1
 fi
-docker build -t "$IMAGE_URI" "$APP_DIR"
-docker push "$IMAGE_URI"
+# Ensure Docker is authenticated for Artifact Registry
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" -q >/dev/null 2>&1 || {
+  echo "[warn] Could not configure Docker auth for Artifact Registry" >&2
+  echo "       You may need to run: gcloud auth configure-docker ${REGION}-docker.pkg.dev" >&2
+}
+if ! docker build -t "$IMAGE_URI" "$APP_DIR"; then
+  echo "[error] Docker build failed for docs viewer" >&2
+  exit 1
+fi
+if ! docker push "$IMAGE_URI"; then
+  echo "[error] Docker push failed for image: ${IMAGE_URI}" >&2
+  echo "        Ensure you have artifactregistry.repositories.uploadArtifacts permission" >&2
+  exit 1
+fi
 cd - >/dev/null
 
 echo "Deploying Cloud Run service: ${SERVICE}"

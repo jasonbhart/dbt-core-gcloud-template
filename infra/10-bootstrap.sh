@@ -73,6 +73,37 @@ ensure_bucket(){
     exit 1
   fi
 }
+
+# Ensure a specific bucket by name (same behavior as ensure_bucket, but parameterized)
+ensure_bucket_named(){
+  local name="$1"
+  local uri="gs://${name}"
+  local err_file err_msg create_out rc
+  err_file="$(mktemp)"
+  if gcloud storage buckets describe "$uri" --project "$PROJECT_ID" >/dev/null 2>"$err_file"; then
+    info "Bucket exists: $uri"
+    rm -f "$err_file"
+    return 0
+  fi
+  err_msg="$(cat "$err_file" 2>/dev/null || true)"; rm -f "$err_file"
+  if [[ "$err_msg" == *"HttpError 403"* || "$err_msg" == *"Permission denied"* || "$err_msg" == *"AccessDenied"* || "$err_msg" == *"does not have storage.buckets.get"* ]]; then
+    echo "[error] Bucket name '${name}' appears to be in use (403 on describe)." >&2
+    echo "        GCS bucket names are global. Please set a unique name and re-run." >&2
+    exit 1
+  fi
+  info "Creating bucket: $uri"
+  create_out="$(gcloud storage buckets create "$uri" --location="$REGION" --project "$PROJECT_ID" 2>&1)"; rc=$?
+  if [[ $rc -ne 0 ]]; then
+    if [[ "$create_out" == *"409"* || "$create_out" == *"already exists"* || "$create_out" == *"not available"* || "$create_out" == *"already owns this bucket"* ]]; then
+      echo "[error] Bucket name '${name}' is already taken globally." >&2
+      echo "        Please choose a unique name (e.g., '${PROJECT_ID}-dbt-artifacts')." >&2
+    else
+      echo "[error] Failed to create bucket ${uri}:" >&2
+      echo "        ${create_out}" >&2
+    fi
+    exit 1
+  fi
+}
 ensure_dataset(){ local ds="$1" desc="$2"; if bq --location="$BQ_LOCATION" show --format=none "${PROJECT_ID}:${ds}" >/dev/null 2>&1; then info "Dataset exists: ${ds}"; else info "Creating dataset: ${ds}"; bq --location="$BQ_LOCATION" mk -d --description "$desc" "${PROJECT_ID}:${ds}"; fi }
 
 ensure_project_binding(){ local role="$1" member="$2"; local policy tmp; tmp="$(mktemp)"; gcloud projects get-iam-policy "$PROJECT_ID" --format=json >"$tmp"; if jq -e --arg r "$role" --arg m "$member" '.bindings[]? | select(.role==$r) | .members[]? | select(.==$m)' "$tmp" >/dev/null; then info "Project IAM binding exists: $role -> $member"; else info "Adding project IAM binding: $role -> $member"; gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="$member" --role="$role" --quiet >/dev/null; fi; rm -f "$tmp"; }
@@ -192,7 +223,7 @@ ensure_bucket_binding () {
   fi
   local tmp2="${tmp}.new"
   jq --arg role "${role}" --arg member "${member}" '
-    .bindings |= (. // []) |
+    .bindings = (.bindings // []) |
     if any(.bindings[]?; .role==$role) then
       .bindings |= map(if .role==$role then (.members += [$member] | .members |= unique) else . end)
     else
@@ -201,7 +232,19 @@ ensure_bucket_binding () {
   ' "${tmp}" > "${tmp2}"
   if ! diff -q "${tmp}" "${tmp2}" >/dev/null 2>&1; then
     info "Updating bucket IAM: gs://${bucket} ${role} += ${member}"
-    gcloud storage buckets set-iam-policy "gs://${bucket}" "${tmp2}" --project "${PROJECT_ID}" >/dev/null
+    if ! gcloud storage buckets set-iam-policy "gs://${bucket}" "${tmp2}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+      warn "set-iam-policy failed; falling back to add-iam-policy-binding"
+      if ! gcloud storage buckets add-iam-policy-binding "gs://${bucket}" \
+        --member "${member}" \
+        --role "${role}" \
+        --project "${PROJECT_ID}" >/dev/null 2>&1; then
+        warn "add-iam-policy-binding failed; attempting gsutil iam ch as final fallback"
+        # gsutil IAM binding syntax for Cloud Storage (accepts full role name)
+        if ! gsutil iam ch "${member}:${role}" "gs://${bucket}" >/dev/null 2>&1; then
+          warn "gsutil iam ch also failed for gs://${bucket} (${role} <- ${member})"
+        fi
+      fi
+    fi
   else
     info "Bucket IAM already set: gs://${bucket} ${role} has ${member}"
   fi
@@ -241,6 +284,10 @@ ensure_ar_repo
 
 info "Ensuring docs bucket"
 ensure_bucket
+
+# Determine which bucket CI will actually use for artifacts (explicit override or fallback to docs bucket)
+ARTIFACTS_BUCKET_EFFECTIVE="${DBT_ARTIFACTS_BUCKET:-${DBT_DOCS_BUCKET}}"
+info "Artifacts bucket (effective): ${ARTIFACTS_BUCKET_EFFECTIVE}"
 
 info "Ensuring BigQuery datasets"
 ensure_dataset "${PROD_DATASET}" "dbt prod dataset"
@@ -348,26 +395,38 @@ fi
 
 # Additional project-level roles for dbt users (service accounts, devs, operator)
 add_project_binding_soft(){
-  local role="$1" member="$2" out rc
-  out=$(gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="$member" --role="$role" --quiet 2>&1); rc=$?
-  if [[ $rc -ne 0 ]]; then
+  local role="$1" member="$2" out
+  # Use if/then to prevent set -e from aborting on non-zero
+  if out=$(gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="$member" --role="$role" --quiet 2>&1); then
+    info "Ensured $role -> $member"
+  else
     warn "Could not add $role to $member (project $PROJECT_ID)"
     if [[ "${DEBUG:-0}" == "1" ]]; then
       echo "[debug] gcloud error: ${out}" >&2
     fi
-  else
-    info "Ensured $role -> $member"
   fi
 }
 
+# Project-level roles required for dbt service accounts
 DBT_USER_ROLES=(
   roles/bigquery.user
   roles/bigquery.readSessionUser
   roles/bigquery.jobUser
-  roles/notebooks.runtimeUser
+  # Additional roles commonly useful for data/ML workflows
+  roles/aiplatform.notebookRuntimeUser
   roles/dataform.codeCreator
-  roles/colab.enterpriseUser
+  roles/aiplatform.colabEnterpriseUser
 )
+
+# Optional: allow extra project roles via env (space-separated list)
+if [[ "${ENABLE_EXTRA_PROJECT_ROLES:-false}" == "true" && -n "${EXTRA_PROJECT_ROLES:-}" ]]; then
+  # shellcheck disable=SC2206
+  EXTRA_ROLES_ARR=( ${EXTRA_PROJECT_ROLES} )
+  DBT_USER_ROLES+=("${EXTRA_ROLES_ARR[@]}")
+fi
+
+# Add project-level BigQuery Data Viewer for cross-dataset access
+DBT_USER_ROLES+=(roles/bigquery.dataViewer)
 
 # Optionally include project-level Data Editor when prod is not read-only
 if [[ "${PROD_READ_ONLY:-true}" != "true" ]]; then
@@ -454,12 +513,38 @@ fi
 
 info "Ensuring bucket IAM for docs"
 ensure_bucket_binding "${DBT_DOCS_BUCKET}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
+ensure_bucket_binding "${DBT_DOCS_BUCKET}" "roles/storage.objectAdmin" "serviceAccount:${CI_SA_EMAIL}"
 
 # If a separate artifacts bucket is defined and differs from DBT_DOCS_BUCKET, grant IAM there too
-if [[ -n "${DBT_ARTIFACTS_BUCKET:-}" && "${DBT_ARTIFACTS_BUCKET}" != "${DBT_DOCS_BUCKET}" ]]; then
-  info "Ensuring bucket IAM for artifacts bucket (${DBT_ARTIFACTS_BUCKET})"
-  ensure_bucket_binding "${DBT_ARTIFACTS_BUCKET}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
+if [[ "${ARTIFACTS_BUCKET_EFFECTIVE}" != "${DBT_DOCS_BUCKET}" ]]; then
+  info "Ensuring artifacts bucket exists (${ARTIFACTS_BUCKET_EFFECTIVE})"
+  ensure_bucket_named "${ARTIFACTS_BUCKET_EFFECTIVE}"
 fi
+
+# Ensure both PROD and CI SAs have required permissions on the effective artifacts bucket
+info "Ensuring bucket IAM (PROD) for artifacts bucket (${ARTIFACTS_BUCKET_EFFECTIVE})"
+ensure_bucket_binding "${ARTIFACTS_BUCKET_EFFECTIVE}" "roles/storage.objectAdmin" "serviceAccount:${PROD_SA_EMAIL}"
+info "Ensuring bucket IAM (CI) for artifacts bucket (${ARTIFACTS_BUCKET_EFFECTIVE})"
+ensure_bucket_binding "${ARTIFACTS_BUCKET_EFFECTIVE}" "roles/storage.objectAdmin" "serviceAccount:${CI_SA_EMAIL}"
+
+# Verify IAM took effect for CI SA
+IAM_TMP="$(mktemp)"
+if gcloud storage buckets get-iam-policy "gs://${ARTIFACTS_BUCKET_EFFECTIVE}" --format=json --project "${PROJECT_ID}" >"${IAM_TMP}" 2>/dev/null; then
+  if jq -e --arg m "serviceAccount:${CI_SA_EMAIL}" '.bindings[]? | select(.role=="roles/storage.objectAdmin") | .members[]? | select(.==$m)' "${IAM_TMP}" >/dev/null; then
+    info "Verified CI SA has objectAdmin on gs://${ARTIFACTS_BUCKET_EFFECTIVE}"
+  else
+    echo "[error] CI SA is missing roles/storage.objectAdmin on gs://${ARTIFACTS_BUCKET_EFFECTIVE}." >&2
+    echo "        Ensure your account has permission to modify bucket IAM and re-run." >&2
+    echo "        You can also grant it manually:" >&2
+    echo "        gcloud storage buckets add-iam-policy-binding gs://${ARTIFACTS_BUCKET_EFFECTIVE} \\" >&2
+    echo "          --member serviceAccount:${CI_SA_EMAIL} --role roles/storage.objectAdmin --project ${PROJECT_ID}" >&2
+    exit 1
+  fi
+else
+  echo "[error] Could not fetch IAM policy for gs://${ARTIFACTS_BUCKET_EFFECTIVE} to verify bindings." >&2
+  exit 1
+fi
+rm -f "${IAM_TMP}"
 
 # Allow docs viewer SA to read docs (if defined)
 if [[ -n "${DOCS_VIEWER_SA_ID:-}" ]]; then

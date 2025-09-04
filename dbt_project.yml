@@ -1,7 +1,7 @@
-name: dbt_core_gcloud_template
+name: dbt_gcloud
 version: 1.0.0
-require-dbt-version: ">=1.9.0,<2.0.0"
-profile: dbt_core_gcloud
+require-dbt-version: ">=1.10.0,<2.0.0"
+profile: dbt_gcloud
 
 model-paths: ["models"]
 macro-paths: ["macros"]
@@ -19,7 +19,7 @@ models:
     relation: true
     columns: true
 
-  dbt_core_gcloud_template:
+  dbt_gcloud:
     staging:
       +materialized: view
     marts:

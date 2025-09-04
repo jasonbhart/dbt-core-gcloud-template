@@ -1,3 +1,5 @@
+{{ config(enabled=false) }}
+
 with s as (
   select * from {{ source('raw', 'example') }}
 )

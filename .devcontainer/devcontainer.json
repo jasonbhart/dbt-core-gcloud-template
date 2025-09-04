@@ -4,7 +4,11 @@
     "dockerfile": "Dockerfile"
   },
   "features": {},
-  "postCreateCommand": "pip install --no-cache-dir \"dbt-core==1.9.0\" \"dbt-bigquery==1.9.0\" && pre-commit install || true",
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt && pre-commit install || true",
+  "postStartCommand": "bash setup-env.sh",
+  "containerEnv": {
+    "DBT_PROFILES_DIR": "profiles"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -14,4 +18,3 @@
     }
   }
 }
-

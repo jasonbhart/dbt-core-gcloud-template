@@ -1,4 +1,4 @@
-dbt_core_gcloud:
+dbt_cloud:
   target: "{{ env_var('DBT_TARGET', 'dev') }}"
   outputs:
     dev:
@@ -16,8 +16,9 @@ dbt_core_gcloud:
       job_execution_timeout_seconds: "{{ (env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') | as_number) if env_var('DBT_JOB_EXECUTION_TIMEOUT_SEC', '') else none }}"
     ci:
       type: bigquery
-      method: service-account
-      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      method: oauth
+      # Uses Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS
+      # (minted by google-github-actions/auth in CI)
       project: "{{ env_var('DBT_GCP_PROJECT_CI') }}"
       dataset: "{{ env_var('DBT_BQ_DATASET') }}"
       location: "{{ env_var('DBT_BQ_LOCATION', 'US') }}"

@@ -1,0 +1,51 @@
+{
+  // VS Code debug configs for dbt using your .env
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "dbt: run",
+      "type": "python",
+      "request": "launch",
+      "program": "dbt",
+      "args": [
+        "run"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/infra/.env",
+      "env": {
+        "DBT_PROFILES_DIR": "profiles"
+      }
+    },
+    {
+      "name": "dbt: test",
+      "type": "python",
+      "request": "launch",
+      "program": "dbt",
+      "args": [
+        "test"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/infra/.env",
+      "env": {
+        "DBT_PROFILES_DIR": "profiles"
+      }
+    },
+    {
+      "name": "dbt: debug",
+      "type": "python",
+      "request": "launch",
+      "program": "dbt",
+      "args": [
+        "debug"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/infra/.env",
+      "env": {
+        "DBT_PROFILES_DIR": "profiles"
+      }
+    }
+  ]
+}

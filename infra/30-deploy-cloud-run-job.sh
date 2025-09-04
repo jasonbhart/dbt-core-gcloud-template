@@ -78,7 +78,12 @@ ensure_image(){
     gcloud services enable cloudbuild.googleapis.com --project "$PROJECT_ID" >/dev/null
     # Submit build from repo root
     pushd "$(dirname "$PWD")" >/dev/null
-    gcloud builds submit --region="$REGION" --tag "$IMAGE_URI" --project "$PROJECT_ID"
+    if ! gcloud builds submit --region="$REGION" --tag "$IMAGE_URI" --project "$PROJECT_ID"; then
+      echo "[error] Cloud Build failed to build and push image: ${IMAGE_URI}" >&2
+      echo "        Check build logs: gcloud builds log --region=${REGION} --project=${PROJECT_ID}" >&2
+      popd >/dev/null
+      exit 1
+    fi
     popd >/dev/null
   fi
 }

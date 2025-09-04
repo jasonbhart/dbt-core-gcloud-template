@@ -16,6 +16,8 @@ require_env(){
 }
 require_env PROJECT_ID REGION SCHEDULER_SA_ID
 
+# Use consistent region for scheduler (defaults to same as Cloud Run Job region)
+SCHED_REGION="${SCHED_REGION:-$REGION}"
 SCHED_SA_EMAIL="${SCHEDULER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "== Ensure Scheduler SA can invoke the Cloud Run job =="
@@ -33,9 +35,10 @@ fi
 rm -f "$TMP_RUN_POLICY"
 
 echo "== Ensure Cloud Scheduler job (runs daily at 06:00 UTC) =="
-if gcloud scheduler jobs describe dbt-prod-nightly --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+echo "[info] Using Scheduler region: ${SCHED_REGION}, Cloud Run region: ${REGION}"
+if gcloud scheduler jobs describe dbt-prod-nightly --location "${SCHED_REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud scheduler jobs update http dbt-prod-nightly \
-    --location "${REGION}" \
+    --location "${SCHED_REGION}" \
     --schedule="0 6 * * *" \
     --http-method=POST \
     --uri="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/dbt-prod-run:run" \
@@ -44,7 +47,7 @@ if gcloud scheduler jobs describe dbt-prod-nightly --location "${REGION}" --proj
     --project "${PROJECT_ID}"
 else
   gcloud scheduler jobs create http dbt-prod-nightly \
-    --location "${REGION}" \
+    --location "${SCHED_REGION}" \
     --schedule="0 6 * * *" \
     --http-method=POST \
     --uri="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/dbt-prod-run:run" \

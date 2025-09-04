@@ -1,26 +1,22 @@
-# Ignore everything not needed in image context
-.git
-.dbt
-.vscode
+# dbt
+target/
+dbt_packages/
+.dbt/
+.user.yml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Env/local
 .env
 .envrc
-.direnv
-__pycache__
-*.pyc
+.direnv/
 
-# dbt build artifacts
-target
-dbt_packages
-
-# Docs artifacts (uploaded separately)
-*.html
-
-# OS
+# Editor/OS
 .DS_Store
+# .vscode/
 
-# Not needed in runtime image
-infra/
-.github/
-docs-viewer/
-scripts/
-compare_*.sql
+# Docker
+*.log
