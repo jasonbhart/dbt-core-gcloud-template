@@ -524,6 +524,19 @@ CI PR summary:
 
 For deeper diffs, consider a **data‑diff** approach (row‑level compare) to verify parity between environments. ([Datafold][6])
 
+### Schema Diff in CI
+
+In addition to row/data diffs, the CI pipeline can generate a schema comparison between the PR’s ephemeral dataset and production for changed models:
+
+* Produces per‑model reports under `schema_diff_reports/` with:
+  * Column changes (added/removed/changed type/nullability)
+  * Table type changes (TABLE ↔ VIEW)
+  * Partitioning/clustering option changes
+  * Movement detection (dataset/identifier changes via manifests)
+* Writes a PR comment titled “dbt Schema Diff Summary”
+* Generates `schema_diff_reports/orphans.md` listing prod relations not covered by dbt models/sources
+* Controlled by env: `DBT_GCP_PROJECT_CI`, `DBT_BQ_DATASET`, `DBT_GCP_PROJECT_PROD`, `DBT_BQ_DATASET_PROD`, optional `SCHEMA_DIFF_PROD_DATASETS`
+
 ---
 
 ## CI (Pull Requests with GitHub Actions)
