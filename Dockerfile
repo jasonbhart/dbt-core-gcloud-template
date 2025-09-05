@@ -1,5 +1,5 @@
-# Use the official dbt-core image as the base
-FROM ghcr.io/dbt-labs/dbt-core:1.10.1
+# Use the official dbt-core image as the base (latest 1.10 patch)
+FROM ghcr.io/dbt-labs/dbt-core:1.10.8
 
 # Install the dbt-bigquery adapter
 RUN pip install "dbt-bigquery==1.10.1"

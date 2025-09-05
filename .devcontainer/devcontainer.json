@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile"
   },
   "features": {},
-  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt && pre-commit install || true",
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt && pip install pre-commit && pre-commit install || true",
   "postStartCommand": "bash setup-env.sh",
   "containerEnv": {
     "DBT_PROFILES_DIR": "profiles"

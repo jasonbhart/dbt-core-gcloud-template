@@ -1,1 +1,2 @@
 09052025 - Added schema drift comparison between integration and prod in CI
+09052025 - Version bumps; Ensure pre-commit hooks are wired up and properly configured

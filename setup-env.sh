@@ -69,3 +69,23 @@ else
 fi
 
 echo "${PREFIX} Environment ready! DBT_USER=${DBT_USER}, DBT_PROFILES_DIR=${DBT_PROFILES_DIR}"
+
+# Ensure pre-commit hooks are installed for local devs and containers
+if command -v pre-commit >/dev/null 2>&1; then
+  echo "${PREFIX} Installing pre-commit hooks"
+  pre-commit install || true
+else
+  # Try to install pre-commit if Python/pip is available
+  if command -v python >/dev/null 2>&1; then
+    echo "${PREFIX} Installing pre-commit (pip user install)"
+    python -m pip install --user pre-commit >/dev/null 2>&1 || true
+    if command -v pre-commit >/dev/null 2>&1; then
+      echo "${PREFIX} Installing pre-commit hooks"
+      pre-commit install || true
+    else
+      echo "${PREFIX} pre-commit not found after install; you can install it manually with 'pip install pre-commit' and run 'pre-commit install'"
+    fi
+  else
+    echo "${PREFIX} Python not found; skipping pre-commit setup. Install Python and run 'pip install pre-commit && pre-commit install'"
+  fi
+fi

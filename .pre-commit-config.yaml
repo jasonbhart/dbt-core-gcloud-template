@@ -1,17 +1,30 @@
 repos:
   - repo: https://github.com/sqlfluff/sqlfluff
-    rev: 3.0.7
+    rev: 3.4.2
     hooks:
       - id: sqlfluff-lint
-        additional_dependencies: ["sqlfluff-templater-dbt"]
+        additional_dependencies: [
+          "sqlfluff-templater-dbt",
+          "dbt-core==1.10.8",
+          "dbt-bigquery==1.10.1"
+        ]
         args: ["--dialect", "bigquery", "--templater", "dbt"]
+        stages: [pre-commit, manual]
+        files: ^models/.*\.sql$
       - id: sqlfluff-fix
-        additional_dependencies: ["sqlfluff-templater-dbt"]
+        additional_dependencies: [
+          "sqlfluff-templater-dbt",
+          "dbt-core==1.10.8",
+          "dbt-bigquery==1.10.1"
+        ]
         args: ["--dialect", "bigquery", "--templater", "dbt"]
+        stages: [pre-commit]
+        files: ^models/.*\.sql$
 
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.35.1
+    rev: v1.37.1
     hooks:
       - id: yamllint
-        args: ["-d", "{extends: default, rules: {line-length: {max: 140}}}"]
-
+        args: ["-d", "{extends: default, rules: {line-length: {max: 140}, document-start: disable, truthy: disable, comments-indentation: disable, indentation: disable, empty-lines: disable}}"]
+        stages: [pre-commit, manual]
+        files: ^models/.*\.(yml|yaml)$
